@@ -61,7 +61,7 @@ function iniciarInterfaceGPS() {
 
     if (!mapGps) {
         mapGps = L.map('mapa-gps', { zoomControl: false, attributionControl: false }).setView([-23.615, -46.575], 18);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapGps);
+        L.tileLayer(`https://{s}-tiles.locationiq.com/v3/streets/r/{z}/{x}/{y}.png?key=${LOCATIONIQ_KEY}`).addTo(mapGps);
         camadaFundoGps.addTo(mapGps);
         
         trilhaMestreGps = L.polyline([], { color: '#000000', weight: 4, opacity: 0.6, dashArray: '6, 6' }).addTo(mapGps);
@@ -109,7 +109,7 @@ function iniciarInterfaceGPS() {
 async function desenharTrilhaMestreFixaCompleta() {
     try {
         let urlCoords = rotaSpx.map((_, i) => `${getAlvoData(i).lon},${getAlvoData(i).lat}`).join(';');
-        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${urlCoords}?overview=full&geometries=geojson`);
+        let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
         let data = await res.json();
         if (data.routes?.length > 0) trilhaMestreGps.setLatLngs(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
     } catch(e){}
@@ -125,7 +125,7 @@ async function atualizarProximaPernaRoxa() {
         let alvoProx = getAlvoData(idxDestino + 1);
         let coords = `${alvoAtual.lon},${alvoAtual.lat};${alvoProx.lon},${alvoProx.lat}`;
         
-        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`);
+        let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${coords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
         let data = await res.json();
         if (data.routes?.length > 0) proximaPernaGps.setLatLngs(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
     } catch(e){}
@@ -207,7 +207,7 @@ async function recalcularRotaGpsTaticaProximoAlvo() {
     markerDestGps = L.circleMarker([alvo.lat, alvo.lon], { radius: 11, color: '#fff', fillColor: '#007AFF', fillOpacity: 1, weight: 3 }).addTo(mapGps);
 
     try {
-        let url = `https://router.project-osrm.org/route/v1/driving/${minhaLon},${minhaLat};${alvo.lon},${alvo.lat}?steps=true&overview=full&geometries=geojson`;
+        let url = `https://us1.locationiq.com/v1/directions/driving/${minhaLon},${minhaLat};${alvo.lon},${alvo.lat}?key=${LOCATIONIQ_KEY}&steps=true&overview=full&geometries=geojson`;
         if (headingCarro !== null) url += `&bearings=${headingCarro},60;`;
         let res = await fetch(url); let data = await res.json();
         if (data.routes?.length > 0) {
