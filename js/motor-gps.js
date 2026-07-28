@@ -61,7 +61,8 @@ function iniciarInterfaceGPS() {
 
     if (!mapGps) {
         mapGps = L.map('mapa-gps', { zoomControl: false, attributionControl: false }).setView([-23.615, -46.575], 18);
-        L.tileLayer(`https://{s}-tiles.locationiq.com/v3/streets/r/{z}/{x}/{y}.png?key=${LOCATIONIQ_KEY}`).addTo(mapGps);
+        // Usa CartoDB Voyager para evitar consumo massivo de quota do LocationIQ
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(mapGps);
         camadaFundoGps.addTo(mapGps);
         
         trilhaMestreGps = L.polyline([], { color: '#000000', weight: 4, opacity: 0.6, dashArray: '6, 6' }).addTo(mapGps);
@@ -107,12 +108,27 @@ function iniciarInterfaceGPS() {
 }
 
 async function desenharTrilhaMestreFixaCompleta() {
+    if (rotaSpx.length <= 1) return;
     try {
-        let urlCoords = rotaSpx.map((_, i) => `${getAlvoData(i).lon},${getAlvoData(i).lat}`).join(';');
-        let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
-        let data = await res.json();
-        if (data.routes?.length > 0) trilhaMestreGps.setLatLngs(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
-    } catch(e){}
+        let coordsCompletas = [];
+        let maxPontos = 45; // Blinda contra erro de limite fatiando a matriz de rotas longas
+        
+        for (let i = 0; i < rotaSpx.length - 1; i += (maxPontos - 1)) {
+            let lote = rotaSpx.slice(i, i + maxPontos);
+            let urlCoords = lote.map((_, idxLote) => {
+                let alvo = getAlvoData(i + idxLote);
+                return `${alvo.lon},${alvo.lat}`;
+            }).join(';');
+            
+            let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
+            let data = await res.json();
+            
+            if (data.routes?.length > 0) {
+                coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+            }
+        }
+        trilhaMestreGps.setLatLngs(coordsCompletas);
+    } catch(e) { console.error("Erro ao desenhar trilha mestre", e); }
 }
 
 async function atualizarProximaPernaRoxa() {
@@ -184,7 +200,6 @@ async function recalcularRotaGpsTaticaProximoAlvo() {
         txtEnderecos = alvo.pacotes.map(p => {
             let volColor = getCorVolume(p.pacotes);
             let volPill = `<span style="background:${volColor.bg}; color:${volColor.color}; padding:2px 6px; border-radius:10px; font-size:12px; margin-left:5px;">${p.pacotes} vol</span>`;
-            // ATUALIZAÇÃO: Usa a função formatarEnderecos que tem o botão invisível da câmera
             let endsFormatados = formatarEnderecos(p.enderecos, p.lat, p.lon);
             return `
             <div style="background: rgba(0,0,0,0.4); border-left: 4px solid #39FF14; padding: 8px; margin-bottom: 8px; border-radius: 5px; text-align: left;">
