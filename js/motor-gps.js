@@ -61,8 +61,7 @@ function iniciarInterfaceGPS() {
 
     if (!mapGps) {
         mapGps = L.map('mapa-gps', { zoomControl: false, attributionControl: false }).setView([-23.615, -46.575], 18);
-        // Usa CartoDB Voyager para evitar consumo massivo de quota do LocationIQ
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapGps);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapGps);
         camadaFundoGps.addTo(mapGps);
         
         trilhaMestreGps = L.polyline([], { color: '#000000', weight: 4, opacity: 0.6, dashArray: '6, 6' }).addTo(mapGps);
@@ -111,7 +110,8 @@ async function desenharTrilhaMestreFixaCompleta() {
     if (rotaSpx.length <= 1) return;
     try {
         let coordsCompletas = [];
-        let maxPontos = 45; // Blinda contra erro de limite fatiando a matriz de rotas longas
+        // CORREÇÃO CRÍTICA DO ARQUITETO: O LocationIQ corta rotas com mais de 25 pontos.
+        let maxPontos = 24; 
         
         for (let i = 0; i < rotaSpx.length - 1; i += (maxPontos - 1)) {
             let lote = rotaSpx.slice(i, i + maxPontos);
@@ -123,11 +123,15 @@ async function desenharTrilhaMestreFixaCompleta() {
             let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
             let data = await res.json();
             
-            if (data.routes?.length > 0) {
+            // TRAVA DE SEGURANÇA: Evita que a linha preta quebre se houver excesso de coordenadas
+            if (data.code === "Ok" && data.routes?.length > 0) {
                 coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
             }
         }
-        trilhaMestreGps.setLatLngs(coordsCompletas);
+        
+        if (coordsCompletas.length > 0) {
+            trilhaMestreGps.setLatLngs(coordsCompletas);
+        }
     } catch(e) { console.error("Erro ao desenhar trilha mestre", e); }
 }
 
