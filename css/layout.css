@@ -1,0 +1,258 @@
+/* ========================================= */
+/* layout.css - Estrutura de Telas e Painéis */
+/* ========================================= */
+
+.modal-fullscreen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--bg-color);
+    background-image: radial-gradient(circle at 50% 0%, rgba(255, 140, 0, 0.05) 0%, transparent 50%);
+    z-index: 2000; overflow-y: auto; padding: 25px 20px;
+    display: none; flex-direction: column; align-items: center;
+}
+
+#controles-iniciais { padding: 30px 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow-y: auto; }
+.logo-ninja-img { width: 240px; max-width: 80%; margin: 40px 0; filter: drop-shadow(0 4px 15px rgba(255,140,0,0.2)); }
+input[type="file"] { display: none; }
+
+.faq-container, .info-container, .bag-container, .relatorio-card {
+    width: 100%; max-width: 500px;
+    background: var(--surface-color);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--surface-border);
+    border-radius: 16px; margin-bottom: 20px; padding: 20px;
+}
+
+.faq-titulo { font-size: 14px; color: var(--brand-primary); text-transform: uppercase; font-weight: 800; margin-bottom: 15px; text-align: center; letter-spacing: 1px; }
+.faq-item { border-bottom: 1px solid var(--surface-border); overflow: hidden; margin-bottom: 0; border-radius: 0; background: transparent; }
+.faq-item:last-child { border-bottom: none; }
+.faq-header { padding: 16px 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 15px; color: var(--text-primary); transition: color 0.2s; }
+.faq-header:hover { color: var(--brand-primary); }
+.faq-body { padding: 0; max-height: 0; overflow: hidden; transition: all 0.3s ease; font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+.faq-item.active .faq-body { padding: 0 0 16px 0; max-height: 800px; }
+.faq-item.active .faq-icon { transform: rotate(45deg); color: var(--brand-primary); }
+.faq-icon { font-size: 20px; color: var(--text-secondary); transition: transform 0.3s ease; }
+
+#form-contato input, #form-contato textarea {
+    background: rgba(0,0,0,0.3) !important; border: 1px solid var(--surface-border) !important;
+    color: var(--text-primary) !important; border-radius: 8px !important; font-family: var(--font-main) !important;
+}
+#form-contato input:focus, #form-contato textarea:focus { border-color: var(--brand-primary) !important; outline: none; }
+
+.grid-mapas { display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 500px; }
+.col-mapa { background: var(--surface-color); padding: 15px; border-radius: 16px; border: 1px solid var(--surface-border); backdrop-filter: blur(12px); }
+.mapa-container { height: 250px; width: 100%; background: #000; border-radius: 12px; margin-top: 15px; border: 1px solid var(--surface-border); overflow: hidden; }
+.legenda { font-size: 13px; color: var(--text-secondary); margin-top: 10px; font-weight: 600; display: flex; align-items: center; }
+.legenda span { display: inline-block; width: 30px; height: 3px; margin-right: 8px; border-radius: 2px; }
+.guia-img { width: 100%; max-width: 400px; border-radius: 16px; border: 1px solid var(--surface-border); box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 25px; }
+
+#painel-topo-desenho { background: rgba(9, 9, 11, 0.9); backdrop-filter: blur(10px); padding: 20px; border-bottom: 1px solid var(--surface-border); z-index: 3500; text-align: center; }
+#instrucao-desenho { color: var(--text-secondary); font-size: 13px; margin: 8px 0 15px 0; }
+#map-container-desenho { flex: 1; position: relative; width: 100%; height: 50vh; }
+#camada-desenho { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2000; display: none; cursor: crosshair; touch-action: none; }
+#painel-resultado-desenho { 
+    background: var(--bg-color); 
+    padding: 20px; 
+    border-top: 1px solid var(--surface-border); 
+    box-shadow: 0 -10px 30px rgba(0,0,0,0.5); 
+    z-index: 3500; 
+    
+    /* 👇 AS 3 REGRAS NOVAS PARA TRAVAR A CAIXA NA TELA 👇 */
+    width: 100vw; 
+    max-width: 100%;
+    box-sizing: border-box; 
+}
+.header-resultado { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+#status-texto-desenho { font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+.botoes-acao-desenho { display: flex; gap: 8px; }
+.btn-undo-azul { background: rgba(0, 122, 255, 0.1); color: var(--info-color); border: 1px solid rgba(0, 122, 255, 0.3); border-radius: 8px; padding: 6px 12px; font-size: 11px; font-weight: bold; display: none; }
+.btn-undo-vermelho { background: rgba(220, 53, 69, 0.1); color: var(--danger-color); border: 1px solid rgba(220, 53, 69, 0.3); border-radius: 8px; padding: 6px 12px; font-size: 11px; font-weight: bold; }
+
+/* --------------------------------------------------- */
+/* CORREÇÃO: LEGENDA DO MANUAL TRAVADA EM UMA LINHA    */
+/* --------------------------------------------------- */
+#ordem-selecionada-desenho { 
+    font-size: 15px; 
+    color: var(--brand-primary); 
+    font-weight: 700; 
+    line-height: 1.5; 
+    white-space: nowrap; 
+    overflow-x: auto;    
+    display: block;
+    width: 100%;
+    padding-bottom: 8px; 
+    scroll-behavior: smooth;
+}
+#ordem-selecionada-desenho::-webkit-scrollbar { height: 4px; }
+#ordem-selecionada-desenho::-webkit-scrollbar-thumb { background: rgba(255, 140, 0, 0.4); border-radius: 4px; }
+
+/* ========================================= */
+/* BALÕES DO MAPA - TEXTO TRANSPARENTE VAZADO */
+/* ========================================= */
+.stop-label, .vaga-label {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #fff !important;
+    font-weight: 900 !important;
+    font-size: 14px !important;
+    text-shadow:
+        -1px -1px 0 #000, 1px -1px 0 #000,
+        -1px  1px 0 #000, 1px  1px 0 #000,
+         0px  3px 5px rgba(0,0,0,0.9) !important;
+}
+.leaflet-tooltip-left::before, .leaflet-tooltip-right::before,
+.leaflet-tooltip-top::before, .leaflet-tooltip-bottom::before {
+    display: none !important; 
+}
+
+/* ========================================= */
+/* DOCA / BAGS E LISTA DE PARADAS            */
+/* ========================================= */
+.bag-container { padding: 0; overflow: hidden; }
+.bag-container h3 { background: rgba(255, 140, 0, 0.1); color: var(--brand-primary); margin: 0; padding: 15px 20px; font-size: 15px; text-align: center; border-bottom: 1px solid var(--surface-border); }
+.bag-item { 
+    padding: 15px 20px; 
+    display: flex; justify-content: space-between; align-items: center; 
+    background: rgba(255, 255, 255, 0.05); 
+    margin: 6px 10px; 
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.bag-item strong { font-size: 15px; color: var(--text-primary); }
+.bag-item small { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+.bag-vol { border-radius: 8px; font-weight: 800; font-size: 12px; padding: 4px 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+
+.header-menu-stops { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; width: 100%; max-width: 500px; }
+.btn-fechar-menu { background: rgba(220, 53, 69, 0.1); color: var(--danger-color); border: 1px solid rgba(220, 53, 69, 0.3); padding: 10px 20px; border-radius: 10px; font-weight: 700; }
+#conteudo-lista-stops { width: 100%; max-width: 500px; }
+.btn-menu-acao { flex: 1; padding: 12px; border-radius: 8px; font-weight: 700; font-size: 13px; text-align: center; border: 1px solid transparent; }
+.btn-menu-check { background: rgba(57, 255, 20, 0.1); color: var(--success-color); border-color: rgba(57, 255, 20, 0.3); }
+.btn-menu-fail { background: rgba(220, 53, 69, 0.1); color: var(--danger-color); border-color: rgba(220, 53, 69, 0.3); }
+
+/* ========================================= */
+/* GPS: TRAVA DE TELA E ROLAGEM LIMITADA     */
+/* ========================================= */
+#tela-navegacao { display: none; flex-direction: column; height: 100vh; width: 100%; position: relative; background: #000; }
+
+#painel-topo { 
+    background: rgba(9, 9, 11, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+    padding: 20px 15px 5px 15px; text-align: center; z-index: 1001; 
+    border-bottom: 1px solid var(--surface-border); box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    max-height: 45vh;
+    display: flex; flex-direction: column;
+}
+.modo-confirmacao { background: rgba(255, 140, 0, 0.95) !important; border-bottom: none !important; }
+.modo-confirmacao #stop-badge { background: #000; color: var(--brand-primary); border-color: var(--brand-primary); }
+.modo-confirmacao .endereco-item { color: #000; border-color: rgba(0,0,0,0.2); }
+
+#stop-badge { 
+    background: rgba(255, 140, 0, 0.1); color: var(--brand-primary); padding: 8px 24px; 
+    border-radius: 100px; font-weight: 800; font-size: 16px; margin-bottom: 5px; 
+    display: inline-block; border: 1px solid rgba(255, 140, 0, 0.3);
+}
+
+#lista-enderecos {
+    overflow-y: auto; 
+    flex: 1; padding-right: 5px; margin-top: 10px; padding-bottom: 10px;
+}
+
+/* --------------------------------------------------- */
+/* ATUALIZAÇÃO: ENDEREÇO CLICÁVEL (FOTO STREET VIEW)   */
+/* --------------------------------------------------- */
+.endereco-item { 
+    font-size: 12px !important; 
+    color: var(--text-primary); 
+    font-weight: 700; text-transform: uppercase; text-align: left; 
+    border: 1px solid rgba(255, 255, 255, 0.25); 
+    padding: 6px 10px !important; 
+    border-radius: 8px; 
+    background: rgba(255, 255, 255, 0.05); 
+    margin-bottom: 5px !important; 
+    line-height: 1.3; 
+    position: relative; /* Necessário para efeito visual */
+}
+.endereco-clicavel { cursor: pointer; transition: background 0.2s; }
+.endereco-clicavel:active { background: rgba(255, 255, 255, 0.15) !important; border-color: var(--brand-primary); }
+
+.num-box { 
+    background: rgba(255, 204, 0, 0.15); 
+    padding: 1px 5px; border-radius: 4px; 
+    color: #FFCC00; 
+    font-weight: 900; font-size: 17px; 
+    border: 1px solid rgba(255, 204, 0, 0.5); 
+}
+
+#btn-menu-stops { position: absolute; top: 15px; right: 15px; width: 45px; height: 45px; background: var(--surface-color); border: 1px solid var(--surface-border); border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 1005; backdrop-filter: blur(10px); }
+#btn-menu-stops span { font-size: 20px; }
+
+#map-wrapper { flex: 1; position: relative; width: 100%; }
+.mapa-janela { width: 100%; height: 100%; background: #000; }
+
+/* ========================================= */
+/* A SETA MESTRA DO GPS                      */
+/* ========================================= */
+#seta-flutuante { 
+    position: absolute; top: 15px; left: 15px; z-index: 1000; 
+    background: rgba(10, 10, 10, 0.95); 
+    backdrop-filter: blur(10px);
+    border-radius: 16px; padding: 10px 20px; text-align: center; color: white; 
+    border: 2px solid #444; 
+    min-width: 90px; display: none; box-shadow: 0 8px 30px rgba(0,0,0,0.7); 
+}
+#seta-icon { font-size: 80px; margin-bottom: 2px; line-height: 1; }
+#seta-dist { font-size: 18px; font-weight: 900; color: var(--success-color); }
+
+#painel-rodape { background: rgba(9, 9, 11, 0.95); backdrop-filter: blur(15px); padding: 20px; text-align: center; z-index: 1001; border-top: 1px solid var(--surface-border); }
+#rodape-rua { color: var(--text-secondary); font-weight: 700; font-size: 13px; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
+#rodape-dist { font-size: 32px; font-weight: 800; color: var(--brand-primary); text-shadow: 0 0 20px rgba(255,140,0,0.3); }
+
+#painel-acoes { display: none; gap: 15px; padding: 20px; background: #000; justify-content: center; z-index: 1002; flex-direction: column; border-top: 1px solid var(--surface-border); }
+
+.btn-status { 
+    padding: 18px; border-radius: 16px; font-size: 16px; font-weight: 800; text-transform: uppercase; 
+    letter-spacing: 1px; transition: transform 0.1s ease, box-shadow 0.1s ease; position: relative; 
+}
+.btn-check { 
+    background: linear-gradient(135deg, #22c55e, #166534); color: #fff; border: 1px solid #86efac; 
+    box-shadow: 0 6px 0 #14532d, 0 10px 20px rgba(34, 197, 94, 0.3); text-shadow: 1px 1px 2px rgba(0,0,0,0.3); 
+}
+.btn-check:active { transform: translateY(6px); box-shadow: 0 0px 0 #14532d, 0 2px 5px rgba(34, 197, 94, 0.3); }
+
+.btn-fail { 
+    background: linear-gradient(135deg, #ef4444, #991b1b); color: #fff; border: 1px solid #fca5a5; 
+    box-shadow: 0 6px 0 #7f1d1d, 0 10px 20px rgba(239, 68, 68, 0.3); text-shadow: 1px 1px 2px rgba(0,0,0,0.3); 
+}
+.btn-fail:active { transform: translateY(6px); box-shadow: 0 0px 0 #7f1d1d, 0 2px 5px rgba(239, 68, 68, 0.3); }
+
+#radar-alert { display: none; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2005; background: rgba(220, 53, 69, 0.95); backdrop-filter: blur(10px); color: #fff; padding: 10px 20px; border-radius: 100px; font-weight: 800; font-size: 18px; border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 8px 25px rgba(220,53,69,0.5); align-items: center; gap: 8px; text-transform: uppercase; white-space: nowrap; }
+
+#combo-checklist-container { background: var(--surface-color); border: 1px solid var(--info-color); padding: 15px; border-radius: 12px; margin-bottom: 10px; max-height: 180px; overflow-y: auto; }
+.combo-check-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--surface-border); }
+.combo-check-item input { width: 24px; height: 24px; accent-color: var(--brand-primary); }
+
+.relatorio-card { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding: 25px; background: transparent; border: none; }
+.rel-dado { background: var(--surface-color); border: 1px solid var(--surface-border); padding: 15px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.rel-dado span { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 700; margin-bottom: 8px; letter-spacing: 0.5px; }
+.rel-dado strong { font-size: 20px; color: var(--text-primary); font-weight: 800; }
+.rel-destaque { color: var(--brand-primary) !important; }
+.rel-full { grid-column: span 2; }
+
+/* --------------------------------------------------- */
+/* MODAL DO STREET VIEW (TELA CHEIA)                   */
+/* --------------------------------------------------- */
+#modal-street-view {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.95); z-index: 9999;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    backdrop-filter: blur(10px);
+}
+#street-view-img {
+    width: 100%; max-width: 500px; max-height: 80vh; object-fit: contain;
+    border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+}
+.btn-fechar-sv {
+    position: absolute; top: 20px; right: 20px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+    color: #fff; font-size: 24px; width: 45px; height: 45px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
