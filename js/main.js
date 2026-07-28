@@ -14,8 +14,9 @@ console.log(
 /* main.js - Variáveis Globais e Utilitários */
 /* ========================================== */
 
-// --- CHAVE DA API LOCATIONIQ ---
+// --- CHAVES E CONTROLES DO MOTOR HÍBRIDO ---
 const LOCATIONIQ_KEY = 'pk.6f7c89475f4a7ab571ae12b3dc7e48b9';
+let usarLocationIQComChave = true; // Chave geral do Failover (se der erro, cai pro OSRM)
 
 let planilhaStopsData = []; 
 let rotaSpx = []; 
@@ -36,6 +37,62 @@ let globalKmRealPercorrida = 0;
 
 let vagasCriadas = []; 
 let vagaCount = 0;
+
+// =========================================================================
+// MOTOR HÍBRIDO DEFINITIVO: FATIADOR + FAILOVER + FREIO ABS
+// =========================================================================
+async function requisitarRotaHibrida(coordsArray) {
+    let coordsCompletas = [];
+    let maxPontos = 24; // Blinda contra o limite de 25 do LocationIQ
+
+    for (let i = 0; i < coordsArray.length - 1; i += (maxPontos - 1)) {
+        let lote = coordsArray.slice(i, i + maxPontos);
+        let strCoords = lote.map(c => `${c[0]},${c[1]}`).join(';');
+        let sucessoLote = false;
+
+        // 1. TENTA O LOCATIONIQ PRIMEIRO
+        if (usarLocationIQComChave) {
+            try {
+                let urlLocationIQ = `https://us1.locationiq.com/v1/directions/driving/${strCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`;
+                let res = await fetch(urlLocationIQ);
+                let data = await res.json();
+                
+                if (data.code === "Ok" && data.routes?.length > 0) {
+                    coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+                    sucessoLote = true;
+                } else if (data.error || data.message) {
+                    throw new Error("Cota LocationIQ excedida ou erro na requisição");
+                }
+            } catch (err) {
+                // Desarma o LocationIQ para o resto da sessão do usuário
+                usarLocationIQComChave = false;
+                console.warn("LocationIQ esgotado. Alternando para o Motor OSRM Público de Backup.");
+            }
+        }
+
+        // 2. SE FALHOU (OU SE A COTA ACABOU), ASSUME O OSRM PÚBLICO
+        if (!sucessoLote) {
+            try {
+                let urlOSRM = `https://router.project-osrm.org/route/v1/driving/${strCoords}?overview=full&geometries=geojson`;
+                let resOSRM = await fetch(urlOSRM);
+                let dataOSRM = await resOSRM.json();
+                
+                if (dataOSRM.code === "Ok" && dataOSRM.routes?.length > 0) {
+                    coordsCompletas.push(...dataOSRM.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+                }
+            } catch (errOSRM) {
+                console.error("Falha no lote de roteamento de Backup (OSRM)", errOSRM);
+            }
+        }
+
+        // 3. O "FREIO ABS" (Delay de 1 segundo)
+        // Isso impede que 50 motoboys no Hub sejam bloqueados por excesso de disparos no mesmo IP
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    return coordsCompletas;
+}
+// =========================================================================
 
 // --- RECUPERAÇÃO DO ESTADO SALVO (AO ABRIR O APP) E VERIFICAÇÃO DO CONSENTIMENTO ---
 window.addEventListener('load', function() {
@@ -253,18 +310,6 @@ function extrairRuaPadrao(enderecoBruto) {
 
 // --- FORMATADOR DE ENDEREÇOS ---
 function formatarEnderecos(listaEnderecos, lat, lon) {
-    /* 
-    ========================================================================
-    [STANDBY PREMIUM] - DESCOMENTE ESTE BLOCO NO FUTURO PARA ATIVAR AS FOTOS
-    let latVal = lat || 0;
-    let lonVal = lon || 0;
-    return listaEnderecos.map(end => {
-        let endEscaped = end.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        return `<div class="endereco-item endereco-clicavel" onclick="abrirFotoStreetView('${endEscaped}', ${latVal}, ${lonVal})">${end.toUpperCase().replace(/(\d+)/g, '<span class="num-box">$1</span>')}</div>`;
-    }).join('');
-    ========================================================================
-    */
-
     // CÓDIGO ATUAL (GRATUITO E ESTÁTICO): Apenas exibe o texto sem clique
     return listaEnderecos.map(end => `<div class="endereco-item">${end.toUpperCase().replace(/(\d+)/g, '<span class="num-box">$1</span>')}</div>`).join('');
 }
@@ -274,7 +319,6 @@ function abrirFotoStreetView(endereco, lat, lon) {
     let modalEl = document.getElementById('modal-street-view');
     if (!imgEl || !modalEl) return;
 
-    // ⚠️ ATENÇÃO: Substitua o texto abaixo pela sua Chave de API real do Google Cloud
     let suaChaveAPI = "COLOQUE_SUA_CHAVE_AQUI"; 
 
     if (lat && lon && lat !== 0 && lon !== 0) {
