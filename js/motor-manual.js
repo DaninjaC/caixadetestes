@@ -23,8 +23,7 @@ function iniciarMapeamentoManual() {
 function montarMapaDesenho() {
     if (!mapDesenho) {
         mapDesenho = L.map('mapa-desenho', { zoomControl: false }).setView([-23.615, -46.575], 14);
-        // Usa CartoDB Voyager para evitar consumo massivo de quota do LocationIQ
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapDesenho);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapDesenho);
         linhaDedoDesenho = L.polyline([], { color: '#FFCC00', weight: 4, opacity: 0.8, dashArray: '10, 10' }).addTo(mapDesenho);
         rotaRealDesenho = L.polyline([], { color: '#007AFF', weight: 5, opacity: 0.9 }).addTo(mapDesenho);
     }
@@ -108,7 +107,6 @@ function verificarCapturaManual(latlng) {
                 m.setStyle({ fillColor: '#39FF14', color: '#000', weight: 3 });
                 houveCapturaNesteCiclo = true;
                 document.getElementById('ordem-selecionada-desenho').innerHTML = txtOrdemLegenda();
-                /* CORREÇÃO: Auto-scroll para a direita */
                 document.getElementById('ordem-selecionada-desenho').scrollLeft = 99999;
             }
         }
@@ -147,7 +145,6 @@ function encaixarVagaNoAsfalto(latlng) {
             document.getElementById('btn-undo-vaga').style.display = 'inline-block';
             document.getElementById('status-texto-desenho').innerText = `✅ ${vId} fixada!`;
             document.getElementById('ordem-selecionada-desenho').innerHTML = txtOrdemLegenda();
-            /* CORREÇÃO: Auto-scroll para a direita */
             document.getElementById('ordem-selecionada-desenho').scrollLeft = 99999;
             atualizarTratamentoAsfaltoManual();
         });
@@ -196,7 +193,9 @@ async function atualizarTratamentoAsfaltoManual() {
     if (sequenciaSelecionada.length <= 1) { rotaRealDesenho.setLatLngs([]); return; }
     try {
         let coordsCompletas = [];
-        let maxPontos = 45; // Blinda contra erro de limite fatiando a matriz ao desenhar
+        // CORREÇÃO CRÍTICA DO ARQUITETO: O LocationIQ corta rotas com mais de 25 pontos.
+        // Abaixamos para 24 para permitir que as linhas se conectem sem quebrar a API!
+        let maxPontos = 24; 
 
         for (let i = 0; i < sequenciaSelecionada.length - 1; i += (maxPontos - 1)) {
             let lote = sequenciaSelecionada.slice(i, i + maxPontos);
@@ -208,11 +207,16 @@ async function atualizarTratamentoAsfaltoManual() {
             let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
             let data = await res.json();
             
-            if (data.routes?.length > 0) {
+            // TRAVA DE SEGURANÇA: Só aceita costurar a linha se a API der sinal verde (Ok)
+            if (data.code === "Ok" && data.routes?.length > 0) {
                 coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
             }
         }
-        rotaRealDesenho.setLatLngs(coordsCompletas);
+        
+        // Se a API devolver os dados com sucesso, desenha na tela. Se der erro, não apaga o que já tem.
+        if (coordsCompletas.length > 0) {
+            rotaRealDesenho.setLatLngs(coordsCompletas);
+        }
     } catch(e) { console.error("Erro no roteamento manual", e); }
 }
 
