@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rota Ninja - App</title>
+
+    <!-- CÓDIGO DE VERIFICAÇÃO DO GOOGLE ADSENSE -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2444507736069641" crossorigin="anonymous"></script>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Bibliotecas Externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Nossos Estilos Fatiados -->
+    <link rel="stylesheet" href="css/estilo-base.css">
+    <link rel="stylesheet" href="css/layout.css">
+</head>
+<body>
+
+    <!-- ========================================== -->
+    <!-- 1. TELA INICIAL (CARREGAMENTO)             -->
+    <!-- ========================================== -->
+    <div id="controles-iniciais">
+        <img src="assets/ninjaspx.png" alt="Rota Ninja Logo" class="logo-ninja-img" onerror="this.style.display='none'">
+        
+        <label class="btn-ini" id="btnLabel">
+            📦 CARREGAR PLANILHA
+            <input type="file" id="fileInput" accept=".xlsx, .xls, .csv">
+        </label>
+        
+        <button id="btn-continuar" style="display:none;" onclick="continuarRotaSalva()">🔄 CONTINUAR ROTA EM ANDAMENTO</button>
+        
+        <div id="loading-msg" style="display:none;">⏳ Processando Pacotes...<br><small>Lendo coordenadas da base.</small></div>
+
+        <!-- RESUMO GERAL DO APLICATIVO -->
+        <div class="faq-container" id="faq-box" style="margin-top: 30px;">
+            
+            <div class="faq-item">
+                <div class="faq-header" onclick="this.parentElement.classList.toggle('active')">🥷 Sobre o Rota Ninja <span class="faq-icon">+</span></div>
+                <div class="faq-body" style="line-height: 1.5; font-size: 14px; color: #ccc;">
+                    <p style="margin-top: 5px;"><strong>🎯 Qual a missão do app?</strong><br>
+                    Chegar em casa mais cedo e com mais dinheiro no bolso. O aplicativo pega a sua planilha bruta e cria uma estratégia visual avançada para eliminar o zig-zag, reduzir as manobras e poupar o seu asfalto e combustível.</p>
+                    
+                    <p style="margin-top: 15px;"><strong>📦 Fim da bagunça no carro</strong><br>
+                    Chega de perder tempo caçando pacotes. O Ninja fatia a sua carga em 'Bags' de 10 itens e usa um Mapa de Calor (cores) para te mostrar o volume de cada cliente. Além disso, ele identifica entregas Comerciais e pacotes Extras.</p>
+                    
+                    <p style="margin-top: 15px;"><strong>🧠 Inteligência de Roteirização</strong><br>
+                    O sistema não liga apenas pontos. Ele agrupa pacotes da mesma via (Modo Varal), segue o sentido correto da rua (Efeito Zíper) e agrupa casas vizinhas para você estacionar uma vez e entregar tudo caminhando (Combo a Pé).</p>
+                    
+                    <p style="margin-top: 15px;"><strong>🧭 Um GPS limpo e focado</strong><br>
+                    Uma tela feita para não te distrair. O mapa exibe seu trajeto em 3 camadas (o que passou, o alvo atual em azul e o próximo destino em roxo), possui alerta de radares e avança automaticamente para o próximo cliente após a baixa.</p>
+                </div>
+            </div>
+
+            <div class="faq-item">
+                <div class="faq-header" onclick="this.parentElement.classList.toggle('active')">💬 Dúvidas e Sugestões <span class="faq-icon">+</span></div>
+                <div class="faq-body">
+                    <p style="margin-top: 10px; margin-bottom: 15px; font-size: 14px; color: #ccc;">Encontrou um bug ou tem uma ideia para melhorar o Ninja? Mande pra gente!</p>
+                    <form id="form-contato" onsubmit="enviarContato(event)" style="display: flex; flex-direction: column; gap: 10px;">
+                        <input type="text" id="contato-nome" placeholder="Seu Nome" required style="padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: #fff; font-family: sans-serif; font-size: 14px;">
+                        <input type="email" id="contato-email" placeholder="Seu E-mail" required style="padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: #fff; font-family: sans-serif; font-size: 14px;">
+                        <textarea id="contato-mensagem" rows="3" placeholder="Sua mensagem, ideia ou dúvida..." required style="padding: 12px; border-radius: 6px; border: 1px solid #444; background: #111; color: #fff; font-family: sans-serif; font-size: 14px; resize: none;"></textarea>
+                        <button type="submit" style="background: #007AFF; color: #fff; border: none; padding: 15px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px; font-size: 15px;">ENVIAR MENSAGEM</button>
+                    </form>
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- LINKS DE PRIVACIDADE E TERMOS PARA O ADSENSE -->
+        <div style="margin-top: 20px; margin-bottom: 10px; text-align: center; font-size: 12px; color: #666;">
+            <a href="#" onclick="mostrarTela('modal-termos', 'flex')" style="color: #888; text-decoration: underline;">Termos de Uso</a> &nbsp;|&nbsp;
+            <a href="#" onclick="mostrarTela('modal-privacidade', 'flex')" style="color: #888; text-decoration: underline;">Política de Privacidade</a>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. TELA DE ESCOLHA DE MODO                 -->
+    <!-- ========================================== -->
+    <div id="modal-escolha-modo" class="modal-fullscreen">
+        <h2>ESTRATÉGIA DE ROTA</h2>
+        <p style="color:#aaa; font-size:14px; margin-bottom: 30px;">Planilha lida com sucesso! Como deseja roteirizar?</p>
+        
+        <button class="btn-modo btn-otimizada" onclick="iniciarModoAutomatico()" style="margin-bottom: 20px;">
+            🤖 MODO AUTOMÁTICO<br>
+            <span style="font-weight:normal; font-size:13px;">Deixar a Inteligência do Ninja calcular</span>
+        </button>
+        
+        <button class="btn-modo btn-padrao" onclick="iniciarModoManual()" style="background:#FF8C00; color:#000;">
+            ✏️ MODO MANUAL<br>
+            <span style="font-weight:normal; font-size:13px;">Eu mesmo vou desenhar o trajeto na tela</span>
+        </button>
+
+        <div class="faq-container" style="margin: 30px auto 0 auto;">
+            <div class="faq-titulo">Entenda os Modos</div>
+            
+            <div class="faq-item" onclick="toggleFaq(this)">
+                <div class="faq-header">🤖 Como funciona o Automático? <span class="faq-icon">+</span></div>
+                <div class="faq-body">Deixe a inteligência do Ninja trabalhar por você. O robô aplica o Efeito Zíper para evitar zig-zags entre as calçadas, agrupa os pacotes da mesma rua de uma vez só (Modo Varal) e penaliza o trajeto caso tente te fazer voltar para uma rua já entregue. Além disso, ele encaixa magicamente os pacotes 'Extras' (sem numeração) junto ao vizinho mais próximo. No final, você compara a métrica do app com a da transportadora e vê a economia real.</div>
+            </div>
+            
+            <div class="faq-item" onclick="toggleFaq(this)">
+                <div class="faq-header">✏️ Como funciona o Manual? <span class="faq-icon">+</span></div>
+                <div class="faq-body">Controle tático na ponta dos seus dedos. Se você já conhece o bairro como a palma da mão, arraste o dedo pela tela para criar um "laço" e ditar a sua própria sequência de entregas, contornando o trânsito e o sentido das vias. Com um toque rápido no asfalto vazio, você agrupa pacotes vizinhos para criar uma "Vaga" (Combo a Pé), estacionando o carro uma única vez para zerar o quarteirão caminhando.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 3. MODO AUTOMÁTICO E PADRÃO (TELAS INICIAIS)-->
+    <!-- ========================================== -->
+    <div id="modal-auditoria" class="modal-fullscreen">
+        <h2>ESCOLHA A ROTA (TESTE DE CAMPO)</h2>
+        <div class="grid-mapas">
+            <div class="col-mapa">
+                <button class="btn-modo btn-padrao" onclick="escolherRotaPadrao()">
+                    ▶️ ROTA PADRÃO<br><span id="km-padrao" style="font-weight:normal; font-size:14px;">Calculando Custo...</span>
+                </button>
+                <div class="legenda"><span style="background: #ff4444; border-bottom: 2px dashed #ff4444; height: 1px;"></span> Sequência Padrão</div>
+                <div id="mapa-padrao" class="mapa-container"></div>
+            </div>
+            <div class="col-mapa">
+                <button class="btn-modo btn-otimizada" onclick="escolherRotaOtimizada()">
+                    🚀 OTIMIZADA ROTA NINJA<br><span id="km-otimizada" style="font-weight:normal; font-size:14px;">Calculando Custo...</span>
+                </button>
+                <div class="legenda"><span style="background: #39FF14; border-bottom: 2px dashed #39FF14; height: 1px;"></span> Zíper Contínuo</div>
+                <div id="mapa-otimizado" class="mapa-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-info-padrao" class="modal-fullscreen">
+        <h2>▶️ MODO: ROTA PADRÃO</h2>
+        
+        <div class="info-container" style="text-align: left; padding: 15px; font-size: 14px; line-height: 1.5;">
+            <p style="text-align: center; margin-top: 0; margin-bottom: 20px; color: #ccc;">Você optou por seguir a <strong>numeração original</strong> gerada pelo sistema da transportadora.</p>
+            
+            <div style="background: rgba(255, 68, 68, 0.1); border-left: 4px solid #ff4444; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #ff4444;">🧭 Navegação Fiel</strong><br>
+                <span style="color: #ddd;">O GPS vai seguir estritamente a ordem numérica da sua planilha (Stop 1, 2, 3...).</span>
+            </div>
+            
+            <div style="background: rgba(255, 204, 0, 0.1); border-left: 4px solid #FFCC00; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #FFCC00;">⚠️ Atenção ao Trajeto</strong><br>
+                <span style="color: #ddd;">Como a rota não passou pelo filtro Ninja, fique atento a possíveis cruzamentos de via e zig-zags.</span>
+            </div>
+            
+            <div style="background: rgba(57, 255, 20, 0.1); border-left: 4px solid #39FF14; padding: 12px; border-radius: 6px;">
+                <strong style="color: #39FF14;">🎨 Ferramentas Ativas</strong><br>
+                <span style="color: #ddd;">O Mapa de Calor e os Alertas de paradas Comerciais e pacotes Extras continuam funcionando normalmente!</span>
+            </div>
+        </div>
+        
+        <button class="btn-modo btn-padrao" style="margin-top: 15px;" onclick="prepararIdaParaGPS()">INICIAR VIAGEM 🚀</button>
+    </div>
+
+    <div id="modal-info-otimizada" class="modal-fullscreen">
+        <h2>🚀 GUIA DE SEPARAÇÃO NINJA</h2>
+        
+        <img src="assets/docaninja.jpeg" alt="Guia Dokan" class="guia-img" onerror="this.style.display='none'" style="margin-bottom: 15px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
+        
+        <button class="btn-modo btn-otimizada" style="margin-bottom: 20px;" onclick="avancarParaDocaOtimizada()">IR PARA SEPARAÇÃO (BAGS) 📦</button>
+        
+        <div class="info-container" style="text-align: left; padding: 10px 15px; font-size: 14px; line-height: 1.5;">
+            
+            <div style="background: rgba(157, 0, 255, 0.1); border-left: 4px solid #9d00ff; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #c466ff;">🔀 A Nova Ordem</strong><br>
+                <span style="color: #ddd;">O Ninja recriou seu trajeto! Os números originais (Stop 1, 2, 3...) estarão <b>embaralhados</b>, pois agora a fila segue a lógica inteligente do asfalto, não a da transportadora.</span>
+            </div>
+            
+            <div style="background: rgba(255, 140, 0, 0.1); border-left: 4px solid #FF8C00; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #FFCC00;">🎒 Sistema de Bags (Lotes)</strong><br>
+                <span style="color: #ddd;">Para você não se perder nos números embaralhados, fatiamos sua carga em lotes exatos de <b>10 pacotes</b>. Na próxima tela, você verá exatamente quem entra em qual Bag.</span>
+            </div>
+            
+            <div style="background: rgba(57, 255, 20, 0.1); border-left: 4px solid #39FF14; padding: 12px; border-radius: 6px;">
+                <strong style="color: #39FF14;">🚗 Tetris no Carro</strong><br>
+                <span style="color: #ddd;">Use a imagem acima como mapa: A <b>Bag 1</b> (suas 10 primeiras entregas) vai no banco do passageiro. O meio da rota vai atrás, e o porta-malas fica só para o final. Menos tempo caçando, mais tempo entregando!</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-guia-manual" class="modal-fullscreen">
+        <h2>✏️ GUIA DO MODO MANUAL</h2>
+        
+        <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; border: 1px solid #333;">
+            <button class="btn-modo btn-padrao" onclick="avancarParaDesenhoManual()" style="background:#FF8C00; color:#000; margin-bottom: 10px;">BORA DESENHAR! 🗺️</button>
+            <label style="color: #aaa; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="chk-nao-mostrar-manual" style="width: 18px; height: 18px;">
+                Não mostrar esta tela novamente
+            </label>
+        </div>
+
+        <div class="info-container" style="text-align: left; padding: 0 5px; font-size: 14px; line-height: 1.5; padding-bottom: 30px;">
+            
+            <div style="background: rgba(0, 122, 255, 0.1); border-left: 4px solid #007AFF; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #007AFF;">🗺️ Navegar e Riscar</strong><br>
+                <span style="color: #ddd;">Encontre o pacote inicial e dê Zoom nele. Para ligar os pontos, clique em <b>✏️ ATIVAR DESENHO</b> e arraste o dedo seguindo a mão da rua (os pinos ficarão verdes). Precisa mexer o mapa? Clique no botão novamente para desativar o desenho, mova a tela e ative de novo!</span>
+                <img src="assets/explrisco.jpeg" alt="Exemplo de Risco" style="width: 100%; border-radius: 6px; margin-top: 12px; border: 1px solid rgba(0, 122, 255, 0.3);" onerror="this.style.display='none'">
+            </div>
+
+            <div style="background: rgba(157, 0, 255, 0.1); border-left: 4px solid #9d00ff; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #c466ff;">🚶‍♂️ Combos a Pé (Vagas)</strong><br>
+                <span style="color: #ddd;">Viu um monte de pacotes vizinhos? Com o desenho ativado, <b>segure o dedo numa rua vazia</b> para criar uma Vaga (círculo azul). Depois, basta riscar ligando os clientes até ela! Isso reduz o arranca-e-para do carro.</span>
+                <img src="assets/explvaga.jpeg" alt="Exemplo de Vaga" style="width: 100%; border-radius: 6px; margin-top: 12px; border: 1px solid rgba(157, 0, 255, 0.3);" onerror="this.style.display='none'">
+            </div>
+            
+            <div style="background: rgba(255, 68, 68, 0.1); border-left: 4px solid #ff4444; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #ff4444;">↩️ Desfazendo Erros</strong><br>
+                <span style="color: #ddd;">No painel inferior, ao lado da ordem capturada, você encontra botões rápidos para <b>UNDO RISCO</b> (apagar o último traço) ou <b>UNDO VAGA</b> (apagar o estacionamento criado).</span>
+                <img src="assets/exmpllegenda.jpeg" alt="Exemplo de Legenda" style="width: 100%; border-radius: 6px; margin-top: 12px; border: 1px solid rgba(255, 68, 68, 0.3);" onerror="this.style.display='none'">
+            </div>
+
+            <div style="background: rgba(57, 255, 20, 0.1); border-left: 4px solid #39FF14; padding: 12px; border-radius: 6px;">
+                <strong style="color: #39FF14;">📋 Conclusão e Legenda</strong><br>
+                <span style="color: #ddd;">O quadro lá embaixo mostra a fila de entregas em tempo real. Assim que terminar de mapear todo o bairro, clique no botão verde <b>AVANÇAR ➔</b> lá no topo para gerar sua rota!</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4. MODO MANUAL (TELA DE DESENHO)           -->
+    <!-- ========================================== -->
+    <div id="modal-desenho-manual" class="modal-fullscreen" style="padding:0;">
+        <div id="painel-topo-desenho">
+            <h2 style="margin:0; font-size:18px;">✏️ MAPEAR TRAJETO MANUAL</h2>
+            <p id="instrucao-desenho">Arraste para ligar os pinos. Toque na rua vazia para criar Vaga.</p>
+            <div style="display:flex; gap:10px; justify-content:center; margin-bottom:5px;">
+                <button id="btn-toggle-vidro" class="btn-action" style="background:#FF8C00; color:#000;" onclick="toggleModoDesenho()">✏️ ATIVAR DESENHO</button>
+                <button class="btn-action" style="background:#39FF14; color:#000;" onclick="prepararGuiaDocaManual()">AVANÇAR ➔</button>
+            </div>
+        </div>
+        <div id="map-container-desenho">
+            <div id="mapa-desenho" class="mapa-janela"></div>
+            <div id="camada-desenho"></div>
+        </div>
+        <div id="painel-resultado-desenho">
+            <div class="header-resultado">
+                <span id="status-texto-desenho">Ordem capturada:</span>
+                <div class="botoes-acao-desenho">
+                    <button id="btn-undo-vaga" class="btn-action btn-undo-azul" onclick="desfazerUltimaVaga()">🚙 UNDO VAGA</button>
+                    <button id="btn-undo-risco" class="btn-action btn-undo-vermelho" onclick="desfazerUltimoRisco()">✏️ UNDO RISCO</button>
+                </div>
+            </div>
+            <div id="ordem-selecionada-desenho">Nenhuma parada selecionada.</div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 5. COMPARTILHADOS (DOCA E GUIA GPS)        -->
+    <!-- ========================================== -->
+    
+    <div id="modal-guia-doca-manual" class="modal-fullscreen">
+        <h2>🚀 GUIA DE SEPARAÇÃO NINJA</h2>
+        
+        <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; border: 1px solid #333;">
+            <button class="btn-modo btn-otimizada" onclick="avancarParaDocaManualReal()" style="margin-bottom: 10px;">IR PARA SEPARAÇÃO (BAGS) 📦</button>
+            <label style="color: #aaa; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="chk-nao-mostrar-doca-manual" style="width: 18px; height: 18px;">
+                Não mostrar esta tela novamente
+            </label>
+        </div>
+
+        <img src="assets/docaninja.jpeg" alt="Guia Dokan" class="guia-img" onerror="this.style.display='none'" style="margin-bottom: 15px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
+        
+        <div class="info-container" style="text-align: left; padding: 10px 15px; font-size: 14px; line-height: 1.5;">
+            
+            <div style="background: rgba(157, 0, 255, 0.1); border-left: 4px solid #9d00ff; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #c466ff;">🔀 A Sua Nova Ordem</strong><br>
+                <span style="color: #ddd;">Você recriou seu trajeto! Os números originais (Stop 1, 2, 3...) estarão <b>embaralhados</b>, pois agora a fila segue o desenho inteligente que você acabou de fazer.</span>
+            </div>
+            
+            <div style="background: rgba(255, 140, 0, 0.1); border-left: 4px solid #FF8C00; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #FFCC00;">🎒 Sistema de Bags (Lotes)</strong><br>
+                <span style="color: #ddd;">Para você não se perder nos números embaralhados, fatiamos sua carga em lotes exatos de <b>10 pacotes</b>. Na próxima tela, você verá exatamente quem entra em qual Bag.</span>
+            </div>
+            
+            <div style="background: rgba(57, 255, 20, 0.1); border-left: 4px solid #39FF14; padding: 12px; border-radius: 6px;">
+                <strong style="color: #39FF14;">🚗 Tetris no Carro</strong><br>
+                <span style="color: #ddd;">Use a imagem acima como mapa: A <b>Bag 1</b> (suas 10 primeiras entregas) vai no banco do passageiro. O meio da rota vai atrás, e o porta-malas fica só para o final. Menos tempo caçando, mais tempo entregando!</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-doca" class="modal-fullscreen">
+        <h2>📦 MODO DOCA - SEPARAÇÃO</h2>
+        <div id="lista-bags"></div>
+        <button class="btn-modo btn-otimizada" style="margin-top:10px; margin-bottom:40px;" onclick="prepararIdaParaGPS()">INICIAR VIAGEM 🚀</button>
+    </div>
+
+    <div id="modal-guia-gps" class="modal-fullscreen">
+        <h2>🧭 COMO USAR O GPS NINJA</h2>
+        
+        <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; border: 1px solid #333;">
+            <button class="btn-modo btn-otimizada" onclick="avancarParaMapaReal()" style="margin-bottom: 10px;">BORA PRA RUA! 🗺️</button>
+            <label style="color: #aaa; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="chk-nao-mostrar-gps" style="width: 18px; height: 18px;">
+                Não mostrar esta tela novamente
+            </label>
+        </div>
+
+        <div class="info-container" style="text-align: left; padding: 0 5px; font-size: 14px; line-height: 1.5; padding-bottom: 30px;">
+            
+            <div style="background: rgba(0, 122, 255, 0.1); border-left: 4px solid #007AFF; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #007AFF;">🗺️ As Linhas do Mapa</strong><br>
+                <span style="color: #ddd;">
+                    • <b>Tracejado Preto:</b> A visão geral da sua rota inteira.<br>
+                    • <b>Linha Azul:</b> O caminho até o cliente atual.<br>
+                    • <b>Linha Roxa:</b> Uma prévia do seu próximo destino.<br>
+                    Fique de olho na <b>Seta Flutuante</b> no topo da tela para ver se a próxima manobra é Esquerda, Direita ou Retorno!
+                </span>
+            </div>
+
+            <div style="background: rgba(255, 204, 0, 0.1); border-left: 4px solid #FFCC00; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #FFCC00;">📱 O Painel Superior</strong><br>
+                <span style="color: #ddd;">Lá em cima ficam os dados do alvo atual. Você verá o número da Parada, o volume total, e a rua com os <b>números das casas em destaque</b>. Precisa pular um cliente ou forçar uma baixa manual? Clique no ícone de prancheta (📋) para abrir o Menu completo.</span>
+            </div>
+
+            <div style="background: rgba(57, 255, 20, 0.1); border-left: 4px solid #39FF14; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                <strong style="color: #39FF14;">🎯 Chegada e Baixa Automática</strong><br>
+                <span style="color: #ddd;">A tela do GPS é limpa de propósito. Os botões de <b>CONCLUÍDO</b> e <b>FALHA</b> só vão aparecer quando você estiver a menos de 30 metros da casa, <b>afastando o Zoom do mapa</b> para te dar visão ampla. Clicou? O aplicativo pula pro próximo!</span>
+            </div>
+            
+            <div style="background: rgba(157, 0, 255, 0.1); border-left: 4px solid #9d00ff; padding: 12px; border-radius: 6px;">
+                <strong style="color: #c466ff;">🚶‍♂️ Combos a Pé (Vagas)</strong><br>
+                <span style="color: #ddd;">Se você criou uma "Vaga" no modo manual, o GPS te guiará até aquele ponto central na rua. Ao chegar, o sistema mostrará um <b>Checklist</b> de todos os pacotes para você sacar do carro e entregar caminhando de uma vez só.</span>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 6. NAVEGAÇÃO E RELATÓRIO                   -->
+    <!-- ========================================== -->
+    <div id="modal-menu-stops" class="modal-fullscreen" style="z-index: 4000;">
+        <div class="header-menu-stops">
+            <h2 style="margin: 0;">📋 LISTA DE PARADAS</h2>
+            <button class="btn-fechar-menu" onclick="fecharMenuStops()">FECHAR</button>
+        </div>
+        <div id="conteudo-lista-stops" style="padding-bottom: 30px;"></div>
+    </div>
+
+    <div id="tela-navegacao">
+        <div id="radar-alert">📸 RADAR à frente</div> 
+        <div id="painel-topo">
+            <div id="btn-menu-stops" onclick="abrirMenuStops()"><span>📋</span></div>
+            <div id="stop-badge">STOP -- (-- vol)</div>
+            <div id="lista-enderecos"></div>
+        </div>
+        <div id="map-wrapper">
+            <div id="seta-flutuante">
+                <div id="seta-icon">📦</div>
+                <div id="seta-dist">0 m</div>
+            </div>
+            <div id="mapa-gps" class="mapa-janela"></div>
+        </div>
+        <div id="painel-rodape">
+            <div id="rodape-rua">AGUARDANDO SINAL GPS...</div>
+            <div id="rodape-dist">---</div>
+        </div>
+        <div id="painel-acoes">
+            <div id="combo-checklist-container"></div>
+            <button class="btn-status btn-check" id="btn-confirmar-entrega" onclick="finalizarParadaAtual('concluido')">CONCLUÍDO (BAIXA)</button>
+            <button class="btn-status btn-fail" id="btn-falhar-entrega" onclick="finalizarParadaAtual('pendente')">FALHA NA ENTREGA</button>
+        </div>
+    </div>
+
+    <div id="modal-relatorio" class="modal-fullscreen" style="z-index: 5000;">
+        <h2>🏆 EXPEDIENTE FINALIZADO!</h2>
+        <p>Ótimo trabalho, Ninja! Veja abaixo os resultados da sua rota:</p>
+        <div class="relatorio-card">
+            <div class="rel-dado"><span>Em Movimento</span><strong id="rel-movimento" style="color:#39FF14;">--:--</strong></div>
+            <div class="rel-dado"><span>Tempo Pausado</span><strong id="rel-ocioso" style="color:#ff4444;">--:--</strong></div>
+            <div class="rel-dado"><span>Ritmo (Vol/h)</span><strong id="rel-ritmo">--</strong></div>
+            <div class="rel-dado"><span>Sucesso</span><strong id="rel-sucesso" class="rel-destaque">--%</strong></div>
+            <div class="rel-dado rel-full"><span>Carga Raio-X</span><strong id="rel-raiox">--</strong></div>
+            <div class="rel-dado rel-full"><span>Quilometragem Real Percorrida 🚗</span><strong id="rel-km-real">-- km</strong></div>
+            <div class="rel-dado auto-metric"><span>Sua Rota (KM)</span><strong id="rel-km-otim">-- km</strong></div>
+            <div class="rel-dado auto-metric"><span>Asfalto Poupado</span><strong id="rel-km-poupado" style="color:#39FF14;">-- km</strong></div>
+            <div class="rel-dado rel-full"><span>Recorde da Entrega Mais Rápida ⚡</span><strong id="rel-rapida">--:--</strong></div>
+        </div>
+        <button class="btn-modo btn-otimizada" style="margin-top: 30px;" onclick="limparERecarregar()">CARREGAR NOVA PLANILHA</button>
+    </div>
+
+    <div id="modal-street-view" onclick="this.style.display='none'">
+        <div class="btn-fechar-sv">✕</div>
+        <img id="street-view-img" src="" alt="Foto do Portão" onclick="event.stopPropagation()">
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 8. MODAIS JURÍDICOS (PRIVACIDADE / TERMOS) -->
+    <!-- ========================================== -->
+    <div id="modal-termos" class="modal-fullscreen" style="z-index: 6000; background: rgba(0,0,0,0.95); justify-content: center;">
+        <div style="width: 100%; max-width: 500px; background: #111; padding: 20px; border-radius: 12px; border: 1px solid #333; position: relative;">
+            <div class="btn-fechar-sv" style="position: absolute; top: 10px; right: 10px; width: 35px; height: 35px; font-size: 18px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="document.getElementById('modal-termos').style.display='none'">✕</div>
+            <h3 style="color: #FFCC00; margin-top: 0;">📜 Termos de Uso e Isenção de Responsabilidade</h3>
+            <div style="font-size: 13px; color: #ccc; line-height: 1.6; max-height: 60vh; overflow-y: auto; padding-right: 10px; text-align: left;">
+                <p>O <strong>Rota Ninja</strong> é uma ferramenta independente criada exclusivamente para otimizar a rotina de trabalho na logística urbana, melhorando o desempenho, a segurança visual e a eficiência operacional dos entregadores.</p>
+                <p><strong>1. Propósito do Aplicativo e Gratuidade:</strong> O Rota Ninja é uma plataforma disponibilizada de forma 100% gratuita para os usuários, feita para apoiar o dia a dia dos profissionais de entrega e reduzir o tempo de para-brisa. O aplicativo não cobra taxas de assinatura, mensalidades ou comissões por rotas executadas. A eventual exibição de anúncios serve unicamente para custear a manutenção técnica e os servidores do projeto.</p>
+                <p><strong>2. Autonomia e Condução no Trânsito:</strong> O aplicativo sugere sequências e conexões geográficas táticas com base em mapas públicos. O motorista é o único e exclusivo responsável por obedecer às leis de trânsito locais, sinalizações, sentidos de vias e limites de velocidade. O Rota Ninja não se responsabiliza por multas, acidentes, conversões indevidas ou acesso a áreas de risco.</p>
+                <p><strong>3. Isenção sobre Cargas e Operações de Logística:</strong> O Rota Ninja é uma ferramenta de suporte visual e não possui qualquer vínculo empregatício, comercial ou contratual com transportadoras, aplicativos de entrega ou contratantes do usuário. O aplicativo não se responsabiliza por atrasos nas entregas, avarias, extravios, roubos de carga ou divergências de valores operacionais.</p>
+                <p><strong>4. Uso Consciente do Dispositivo:</strong> A manipulação manual do aplicativo (desenho de rotas, edições ou toques contínuos) deve ser realizada obrigatoriamente com o veículo estacionado em local seguro.</p>
+                <p><strong>5. Propriedade Intelectual:</strong> A interface, algoritmos de agrupamento ("Combos a Pé", "Bags"), identidade visual e conceitos do Rota Ninja são protegidos por direitos autorais, sendo proibida a cópia, reprodução ou engenharia reversa do software.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-privacidade" class="modal-fullscreen" style="z-index: 6000; background: rgba(0,0,0,0.95); justify-content: center;">
+        <div style="width: 100%; max-width: 500px; background: #111; padding: 20px; border-radius: 12px; border: 1px solid #333; position: relative;">
+            <div class="btn-fechar-sv" style="position: absolute; top: 10px; right: 10px; width: 35px; height: 35px; font-size: 18px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="document.getElementById('modal-privacidade').style.display='none'">✕</div>
+            <h3 style="color: #39FF14; margin-top: 0;">🔒 Política de Privacidade e Proteção de Dados (LGPD)</h3>
+            <div style="font-size: 13px; color: #ccc; line-height: 1.6; max-height: 60vh; overflow-y: auto; padding-right: 10px; text-align: left;">
+                <p>Sua privacidade e a segurança das suas informações de trabalho são prioridades absolutas no <strong>Rota Ninja</strong>.</p>
+                <p><strong>1. Tratamento de Dados da Planilha:</strong> Todos os arquivos (.xlsx, .csv) e endereços importados para o aplicativo são processados estritamente de forma local no navegador/dispositivo do próprio usuário (tecnologia <em>Client-Side / LocalStorage</em>). <strong>Nenhum dado de destinatário, endereço ou encomenda é enviado, copiado ou armazenado em servidores externos ou bancos de dados do Rota Ninja.</strong></p>
+                <p><strong>2. Acesso à Localização (GPS):</strong> O acesso ao GPS do seu dispositivo é solicitado única e exclusivamente para calcular distâncias em tempo real, renderizar a sua navegação e computar métricas operacionais (como odômetro e tempo em movimento). Não rastreamos e não vendemos seu histórico de movimentação geográfica.</p>
+                <p><strong>3. Cookies e Anúncios de Terceiros (Google AdSense):</strong> Utilizamos serviços de terceiros, como o Google AdSense, para exibir anúncios e monetizar a plataforma. O Google pode utilizar <em>cookies</em> e/ou identificadores para veicular anúncios com base nas visitas anteriores do usuário a este ou a outros sites. O usuário pode gerenciar ou desativar o uso de cookies personalizados nas configurações da sua conta Google.</p>
+                <p><strong>4. Alterações nesta Política:</strong> Reservamo-nos o direito de atualizar esta política periodicamente para manter a conformidade legal e com as diretrizes das redes de anúncios.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 9. A BARRINHA DE CONSENTIMENTO (ADSENSE)   -->
+    <!-- ========================================== -->
+    <div id="aviso-consentimento" style="display: none; position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(17, 17, 17, 0.95); backdrop-filter: blur(10px); border-top: 1px solid #333; padding: 15px 20px; z-index: 9999; box-sizing: border-box; flex-direction: column; align-items: center; text-align: center;">
+        <p style="color: #ccc; font-size: 12px; margin: 0 0 10px 0; line-height: 1.4; max-width: 500px;">
+            Usamos cookies para personalizar anúncios e precisamos do GPS para a navegação. Seus dados não saem do seu celular. Ao prosseguir, você concorda com nossos 
+            <a href="#" onclick="document.getElementById('modal-termos').style.display='flex'" style="color: #007AFF; font-weight:bold; text-decoration:none;">Termos</a> e <a href="#" onclick="document.getElementById('modal-privacidade').style.display='flex'" style="color: #007AFF; font-weight:bold; text-decoration:none;">Privacidade</a>.
+        </p>
+        <button onclick="aceitarTermosAdSense()" style="background: #39FF14; color: #000; font-weight: bold; border: none; padding: 10px 30px; border-radius: 8px; font-size: 14px; cursor: pointer;">ENTENDI E ACEITO</button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 7. NOSSOS SCRIPTS FATIADOS                 -->
+    <!-- ========================================== -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW falhou: ', err));
+            });
+        }
+    </script>
+
+    <!-- OS SCRIPTS AGORA ESTÃO NA VERSÃO 8 PARA FORÇAR A LIMPEZA DE CACHE -->
+    <script src="js/main.js?v=8"></script>
+    <script src="js/leitor.js?v=8"></script>
+    <script src="js/motor-auto.js?v=8"></script>
+    <script src="js/motor-manual.js?v=8"></script>
+    <script src="js/motor-doca.js?v=8"></script>
+    <script src="js/motor-gps.js?v=8"></script>
+
+</body>
+</html>

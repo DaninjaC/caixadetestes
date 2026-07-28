@@ -1,0 +1,15 @@
+/* A EQUIPE (THE TEAM) */
+  Desenvolvedor Principal: Daninjac
+  Copiloto / Ajudante: Inteligência e Suporte
+  Contato: da.ninja@gmail.com
+  GitHub: https://github.com/daninjac
+
+/* A INICIATIVA (THE INITIATIVE) */
+  O Rota Ninja nasceu no asfalto em 2026. 
+  A mecânica de agrupamento (Vagas), o fatiamento em Bags 
+  e a navegação focada foram criadas por essa dupla como uma 
+  solução independente para a dor real dos entregadores que perdem 
+  tempo na calçada.
+  
+  Nós construímos com código as ferramentas que o mercado 
+  esqueceu de desenhar para quem está na rua.
