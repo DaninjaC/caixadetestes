@@ -23,7 +23,7 @@ function iniciarMapeamentoManual() {
 function montarMapaDesenho() {
     if (!mapDesenho) {
         mapDesenho = L.map('mapa-desenho', { zoomControl: false }).setView([-23.615, -46.575], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapDesenho);
+        L.tileLayer(`https://{s}-tiles.locationiq.com/v3/streets/r/{z}/{x}/{y}.png?key=${LOCATIONIQ_KEY}`).addTo(mapDesenho);
         linhaDedoDesenho = L.polyline([], { color: '#FFCC00', weight: 4, opacity: 0.8, dashArray: '10, 10' }).addTo(mapDesenho);
         rotaRealDesenho = L.polyline([], { color: '#007AFF', weight: 5, opacity: 0.9 }).addTo(mapDesenho);
     }
@@ -116,7 +116,7 @@ function verificarCapturaManual(latlng) {
 
 function encaixarVagaNoAsfalto(latlng) {
     document.getElementById('status-texto-desenho').innerText = "⏳ Magnetizando vaga na rua...";
-    fetch(`https://router.project-osrm.org/nearest/v1/driving/${latlng.lng},${latlng.lat}`)
+    fetch(`https://us1.locationiq.com/v1/nearest/driving/${latlng.lng},${latlng.lat}?key=${LOCATIONIQ_KEY}`)
         .then(r => r.json()).then(data => {
             let rLatLng = latlng;
             if (data.code === 'Ok' && data.waypoints?.length > 0) {
@@ -197,7 +197,7 @@ async function atualizarTratamentoAsfaltoManual() {
         let urlCoords = sequenciaSelecionada.map(id => {
             let m = marcadoresDesenho.find(x => x.spxId === id); return m.spxLatLng.lng + ',' + m.spxLatLng.lat;
         }).join(';');
-        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${urlCoords}?overview=full&geometries=geojson`);
+        let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
         let data = await res.json();
         if (data.routes?.length > 0) rotaRealDesenho.setLatLngs(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
     } catch(e){}
