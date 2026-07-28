@@ -14,6 +14,8 @@ console.log(
 /* main.js - Variáveis Globais e Utilitários */
 /* ========================================== */
 
+// --- CHAVE DA API LOCATIONIQ ---
+const LOCATIONIQ_KEY = 'pk.6f7c89475f4a7ab571ae12b3dc7e48b9';
 
 let planilhaStopsData = []; 
 let rotaSpx = []; 
