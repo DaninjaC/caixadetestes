@@ -23,7 +23,8 @@ function iniciarMapeamentoManual() {
 function montarMapaDesenho() {
     if (!mapDesenho) {
         mapDesenho = L.map('mapa-desenho', { zoomControl: false }).setView([-23.615, -46.575], 14);
-        L.tileLayer(`https://{s}-tiles.locationiq.com/v3/streets/r/{z}/{x}/{y}.png?key=${LOCATIONIQ_KEY}`).addTo(mapDesenho);
+        // Usa CartoDB Voyager para evitar consumo massivo de quota do LocationIQ
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(mapDesenho);
         linhaDedoDesenho = L.polyline([], { color: '#FFCC00', weight: 4, opacity: 0.8, dashArray: '10, 10' }).addTo(mapDesenho);
         rotaRealDesenho = L.polyline([], { color: '#007AFF', weight: 5, opacity: 0.9 }).addTo(mapDesenho);
     }
@@ -194,13 +195,25 @@ function desfazerUltimaVaga() {
 async function atualizarTratamentoAsfaltoManual() {
     if (sequenciaSelecionada.length <= 1) { rotaRealDesenho.setLatLngs([]); return; }
     try {
-        let urlCoords = sequenciaSelecionada.map(id => {
-            let m = marcadoresDesenho.find(x => x.spxId === id); return m.spxLatLng.lng + ',' + m.spxLatLng.lat;
-        }).join(';');
-        let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
-        let data = await res.json();
-        if (data.routes?.length > 0) rotaRealDesenho.setLatLngs(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
-    } catch(e){}
+        let coordsCompletas = [];
+        let maxPontos = 45; // Blinda contra erro de limite fatiando a matriz ao desenhar
+
+        for (let i = 0; i < sequenciaSelecionada.length - 1; i += (maxPontos - 1)) {
+            let lote = sequenciaSelecionada.slice(i, i + maxPontos);
+            let urlCoords = lote.map(id => {
+                let m = marcadoresDesenho.find(x => x.spxId === id); 
+                return `${m.spxLatLng.lng},${m.spxLatLng.lat}`;
+            }).join(';');
+            
+            let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
+            let data = await res.json();
+            
+            if (data.routes?.length > 0) {
+                coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+            }
+        }
+        rotaRealDesenho.setLatLngs(coordsCompletas);
+    } catch(e) { console.error("Erro no roteamento manual", e); }
 }
 
 function finalizarMapeamentoManual() {
