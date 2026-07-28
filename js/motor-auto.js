@@ -59,12 +59,13 @@ function roteirizarModoAutomatico() {
 function iniciarMapasAuditoria() {
     if (!mapPadrao) {
         mapPadrao = L.map('mapa-padrao', { zoomControl: false }).setView([-23.61, -46.57], 14);
-        L.tileLayer(`https://{s}-tiles.locationiq.com/v3/dark/r/{z}/{x}/{y}.png?key=${LOCATIONIQ_KEY}`).addTo(mapPadrao);
+        // Usa CartoDB Dark (100% gratuito e ilimitado para poupar a cota da LocationIQ)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(mapPadrao);
         layerPadrao.addTo(mapPadrao);
     }
     if (!mapOtimizado) {
         mapOtimizado = L.map('mapa-otimizado', { zoomControl: false }).setView([-23.61, -46.57], 14);
-        L.tileLayer(`https://{s}-tiles.locationiq.com/v3/dark/r/{z}/{x}/{y}.png?key=${LOCATIONIQ_KEY}`).addTo(mapOtimizado);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(mapOtimizado);
         layerOtimizado.addTo(mapOtimizado);
     }
 }
