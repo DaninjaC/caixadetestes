@@ -23,6 +23,7 @@ function iniciarMapeamentoManual() {
 function montarMapaDesenho() {
     if (!mapDesenho) {
         mapDesenho = L.map('mapa-desenho', { zoomControl: false }).setView([-23.615, -46.575], 14);
+        // Mapa Claro de Alto Contraste
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapDesenho);
         linhaDedoDesenho = L.polyline([], { color: '#FFCC00', weight: 4, opacity: 0.8, dashArray: '10, 10' }).addTo(mapDesenho);
         rotaRealDesenho = L.polyline([], { color: '#007AFF', weight: 5, opacity: 0.9 }).addTo(mapDesenho);
@@ -113,41 +114,63 @@ function verificarCapturaManual(latlng) {
     });
 }
 
-function encaixarVagaNoAsfalto(latlng) {
+async function encaixarVagaNoAsfalto(latlng) {
     document.getElementById('status-texto-desenho').innerText = "⏳ Magnetizando vaga na rua...";
-    fetch(`https://us1.locationiq.com/v1/nearest/driving/${latlng.lng},${latlng.lat}?key=${LOCATIONIQ_KEY}`)
-        .then(r => r.json()).then(data => {
-            let rLatLng = latlng;
+    
+    let rLatLng = latlng;
+    
+    // Motor Híbrido também para o magnetismo da vaga!
+    try {
+        let usouLocationIQ = false;
+        if (usarLocationIQComChave) {
+            try {
+                let res = await fetch(`https://us1.locationiq.com/v1/nearest/driving/${latlng.lng},${latlng.lat}?key=${LOCATIONIQ_KEY}`);
+                let data = await res.json();
+                if (data.code === 'Ok' && data.waypoints?.length > 0) {
+                    let loc = data.waypoints[0].location; rLatLng = L.latLng(loc[1], loc[0]);
+                    usouLocationIQ = true;
+                } else if (data.error) {
+                    usarLocationIQComChave = false; // Desarma se a cota estourou
+                }
+            } catch(e) { usarLocationIQComChave = false; }
+        }
+
+        if (!usouLocationIQ) {
+            let res = await fetch(`https://router.project-osrm.org/nearest/v1/driving/${latlng.lng},${latlng.lat}`);
+            let data = await res.json();
             if (data.code === 'Ok' && data.waypoints?.length > 0) {
                 let loc = data.waypoints[0].location; rLatLng = L.latLng(loc[1], loc[0]);
             }
-            vagaCount++;
-            let vId = "Vaga " + vagaCount;
-            let marker = L.circleMarker(rLatLng, { radius: 10, color: '#fff', fillColor: '#007AFF', fillOpacity: 1, weight: 3 })
-                .bindTooltip(vId, { permanent: true, direction: 'top', className: 'vaga-label', offset: [0, -5] })
-                .addTo(camadaPinosManual); 
-            
-            marker.spxId = vId; marker.spxLatLng = rLatLng; marker.corOriginal = '#007AFF'; marker.isGrouped = false;
-            marcadoresDesenho.push(marker);
+        }
+    } catch(e) { console.error("Falha ao alinhar vaga ao asfalto.", e); }
 
-            let objVaga = { marker: marker, conectoras: [], sugados: [] };
-            marcadoresDesenho.forEach(m => {
-                if (m !== marker && !m.isGrouped && !sequenciaSelecionada.includes(m.spxId) && !m.spxId.startsWith("Vaga")) {
-                    if (mapDesenho.distance(rLatLng, m.spxLatLng) <= 70) {
-                        m.isGrouped = true;
-                        m.setStyle({ fillColor: '#007AFF', color: '#333', weight: 1, dashArray: '2,2' });
-                        let cordinha = L.polyline([rLatLng, m.spxLatLng], { color: '#007AFF', weight: 2, dashArray: '4,4', opacity: 0.6 }).addTo(mapDesenho);
-                        objVaga.conectoras.push(cordinha); objVaga.sugados.push(m);
-                    }
-                }
-            });
-            vagasCriadas.push(objVaga);
-            document.getElementById('btn-undo-vaga').style.display = 'inline-block';
-            document.getElementById('status-texto-desenho').innerText = `✅ ${vId} fixada!`;
-            document.getElementById('ordem-selecionada-desenho').innerHTML = txtOrdemLegenda();
-            document.getElementById('ordem-selecionada-desenho').scrollLeft = 99999;
-            atualizarTratamentoAsfaltoManual();
-        });
+    vagaCount++;
+    let vId = "Vaga " + vagaCount;
+    let marker = L.circleMarker(rLatLng, { radius: 10, color: '#fff', fillColor: '#007AFF', fillOpacity: 1, weight: 3 })
+        .bindTooltip(vId, { permanent: true, direction: 'top', className: 'vaga-label', offset: [0, -5] })
+        .addTo(camadaPinosManual); 
+    
+    marker.spxId = vId; marker.spxLatLng = rLatLng; marker.corOriginal = '#007AFF'; marker.isGrouped = false;
+    marcadoresDesenho.push(marker);
+
+    let objVaga = { marker: marker, conectoras: [], sugados: [] };
+    marcadoresDesenho.forEach(m => {
+        if (m !== marker && !m.isGrouped && !sequenciaSelecionada.includes(m.spxId) && !m.spxId.startsWith("Vaga")) {
+            if (mapDesenho.distance(rLatLng, m.spxLatLng) <= 70) {
+                m.isGrouped = true;
+                m.setStyle({ fillColor: '#007AFF', color: '#333', weight: 1, dashArray: '2,2' });
+                let cordinha = L.polyline([rLatLng, m.spxLatLng], { color: '#007AFF', weight: 2, dashArray: '4,4', opacity: 0.6 }).addTo(mapDesenho);
+                objVaga.conectoras.push(cordinha); objVaga.sugados.push(m);
+            }
+        }
+    });
+    
+    vagasCriadas.push(objVaga);
+    document.getElementById('btn-undo-vaga').style.display = 'inline-block';
+    document.getElementById('status-texto-desenho').innerText = `✅ ${vId} fixada!`;
+    document.getElementById('ordem-selecionada-desenho').innerHTML = txtOrdemLegenda();
+    document.getElementById('ordem-selecionada-desenho').scrollLeft = 99999;
+    atualizarTratamentoAsfaltoManual();
 }
 
 function txtOrdemLegenda() {
@@ -192,28 +215,14 @@ function desfazerUltimaVaga() {
 async function atualizarTratamentoAsfaltoManual() {
     if (sequenciaSelecionada.length <= 1) { rotaRealDesenho.setLatLngs([]); return; }
     try {
-        let coordsCompletas = [];
-        // CORREÇÃO CRÍTICA DO ARQUITETO: O LocationIQ corta rotas com mais de 25 pontos.
-        // Abaixamos para 24 para permitir que as linhas se conectem sem quebrar a API!
-        let maxPontos = 24; 
-
-        for (let i = 0; i < sequenciaSelecionada.length - 1; i += (maxPontos - 1)) {
-            let lote = sequenciaSelecionada.slice(i, i + maxPontos);
-            let urlCoords = lote.map(id => {
-                let m = marcadoresDesenho.find(x => x.spxId === id); 
-                return `${m.spxLatLng.lng},${m.spxLatLng.lat}`;
-            }).join(';');
-            
-            let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
-            let data = await res.json();
-            
-            // TRAVA DE SEGURANÇA: Só aceita costurar a linha se a API der sinal verde (Ok)
-            if (data.code === "Ok" && data.routes?.length > 0) {
-                coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
-            }
-        }
+        // Agora envia apenas um Array de coordenadas para a Central do main.js resolver
+        let todasCoords = sequenciaSelecionada.map(id => {
+            let m = marcadoresDesenho.find(x => x.spxId === id); 
+            return [m.spxLatLng.lng, m.spxLatLng.lat];
+        });
         
-        // Se a API devolver os dados com sucesso, desenha na tela. Se der erro, não apaga o que já tem.
+        let coordsCompletas = await requisitarRotaHibrida(todasCoords);
+        
         if (coordsCompletas.length > 0) {
             rotaRealDesenho.setLatLngs(coordsCompletas);
         }
