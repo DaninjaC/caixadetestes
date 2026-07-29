@@ -6,7 +6,7 @@ console.log(
   "color: #ff8c00; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 2px black;"
 );
 console.log(
-  "%cArquitetado e desenvolvido por Daninjac e sua Ajudante.\n\nUma iniciativa independente criada para resolver a dor real do arranca-e-para e da falta de inteligência tática nas ruas. Se você é um engenheiro de software de uma grande transportadora lendo este código: inspire-se na nossa mecânica, mas reconheça quem abriu o caminho.",
+  "%cArquitetado e desenvolvido por Daninjac e sua Ajudante.\n\nCódigo auditado e otimizado para alta concorrência, prevenção de memory leaks e roteamento híbrido com failover seguro.",
   "color: #94a3b8; font-size: 14px; line-height: 1.5;"
 );
 
@@ -16,7 +16,8 @@ console.log(
 
 // --- CHAVES E CONTROLES DO MOTOR HÍBRIDO ---
 const LOCATIONIQ_KEY = 'pk.6f7c89475f4a7ab571ae12b3dc7e48b9';
-let usarLocationIQComChave = true; // Chave geral do Failover (se der erro, cai pro OSRM)
+let usarLocationIQComChave = true; 
+let proximaTentativaLocationIQ = 0; // Cooldown inteligente para não bloquear permanentemente por falhas transientes
 
 let planilhaStopsData = []; 
 let rotaSpx = []; 
@@ -30,7 +31,7 @@ let wakeLock = null;
 let globalKmPadrao = 0;
 let globalKmOtimizada = 0;
 
-// Novas variáveis para relatórios e controles de tempo/deslocamento
+// Variáveis para relatórios e controles de tempo/deslocamento
 let globalTempoOcioso = 0;
 let globalTempoMovimento = 0;
 let globalKmRealPercorrida = 0;
@@ -38,63 +39,109 @@ let globalKmRealPercorrida = 0;
 let vagasCriadas = []; 
 let vagaCount = 0;
 
+// --- OTIMIZAÇÃO O(1) PARA BUSCAS NO GPS ---
+let indicePlanilhaPorStop = new Map();
+let indiceVagasPorId = new Map();
+
+function reconstruirIndices() {
+    indicePlanilhaPorStop = new Map(planilhaStopsData.map(p => [p.stop, p]));
+    indiceVagasPorId = new Map(vagasCriadas.map(v => [v.marker.spxId, v]));
+}
+
+// --- HELPER DE FETCH COM TIMEOUT E CHECAGEM DE STATUS ---
+async function fetchComTimeout(url, opts = {}, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { ...opts, signal: controller.signal });
+        if (!res.ok) {
+            let err = new Error(`HTTP ${res.status} em ${url}`);
+            err.status = res.status;
+            throw err;
+        }
+        return res;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // =========================================================================
-// MOTOR HÍBRIDO DEFINITIVO: FATIADOR + FAILOVER + FREIO ABS
+// MOTOR HÍBRIDO DEFINITIVO: FILA GLOBAL + FAILOVER + FREIO ABS
 // =========================================================================
-async function requisitarRotaHibrida(coordsArray) {
+let filaRequisicoesHibridas = Promise.resolve();
+
+// Função pública protegida contra Race Conditions
+function requisitarRotaHibrida(coordsArray) {
+    const execucao = filaRequisicoesHibridas.then(() => requisitarRotaHibridaInterna(coordsArray));
+    // Mesmo se uma falhar, a fila não trava para as próximas chamadas do Hub
+    filaRequisicoesHibridas = execucao.catch(() => {});
+    return execucao;
+}
+
+async function requisitarRotaHibridaInterna(coordsArray) {
     let coordsCompletas = [];
-    let maxPontos = 24; // Blinda contra o limite de 25 do LocationIQ
+    let maxPontos = 24; 
 
     for (let i = 0; i < coordsArray.length - 1; i += (maxPontos - 1)) {
         let lote = coordsArray.slice(i, i + maxPontos);
         let strCoords = lote.map(c => `${c[0]},${c[1]}`).join(';');
         let sucessoLote = false;
 
-        // 1. TENTA O LOCATIONIQ PRIMEIRO
+        // 1. TENTA O LOCATIONIQ PRIMEIRO (Com verificação de Cooldown)
+        if (!usarLocationIQComChave && Date.now() > proximaTentativaLocationIQ) {
+            usarLocationIQComChave = true; // Tempo de punição acabou, tenta novamente
+        }
+
         if (usarLocationIQComChave) {
             try {
                 let urlLocationIQ = `https://us1.locationiq.com/v1/directions/driving/${strCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`;
-                let res = await fetch(urlLocationIQ);
+                let res = await fetchComTimeout(urlLocationIQ, {}, 6000);
                 let data = await res.json();
                 
                 if (data.code === "Ok" && data.routes?.length > 0) {
                     coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
                     sucessoLote = true;
                 } else if (data.error || data.message) {
-                    throw new Error("Cota LocationIQ excedida ou erro na requisição");
+                    throw { status: 403, message: "Erro de API ou Cota" };
                 }
             } catch (err) {
-                // Desarma o LocationIQ para o resto da sessão do usuário
                 usarLocationIQComChave = false;
-                console.warn("LocationIQ esgotado. Alternando para o Motor OSRM Público de Backup.");
+                if (err.status === 429) {
+                    proximaTentativaLocationIQ = Date.now() + 30000; // Rate limit: espera 30s
+                    console.warn("[Rota Ninja] LocationIQ Rate Limit (429). Alternando para backup.");
+                } else if (err.status === 403 || err.status === 401) {
+                    proximaTentativaLocationIQ = Date.now() + 300000; // Cota diária estourada: espera 5 min
+                    console.warn("[Rota Ninja] LocationIQ Cota Excedida. Alternando para backup.");
+                } else {
+                    proximaTentativaLocationIQ = Date.now() + 15000; // Falha de rede genérica: 15s
+                    console.warn("[Rota Ninja] LocationIQ inacessível. Alternando para backup.");
+                }
             }
         }
 
-        // 2. SE FALHOU (OU SE A COTA ACABOU), ASSUME O OSRM PÚBLICO
+        // 2. SE FALHOU (OU EM COOLDOWN), ASSUME O OSRM PÚBLICO
         if (!sucessoLote) {
             try {
                 let urlOSRM = `https://router.project-osrm.org/route/v1/driving/${strCoords}?overview=full&geometries=geojson`;
-                let resOSRM = await fetch(urlOSRM);
+                let resOSRM = await fetchComTimeout(urlOSRM, {}, 8000);
                 let dataOSRM = await resOSRM.json();
                 
                 if (dataOSRM.code === "Ok" && dataOSRM.routes?.length > 0) {
                     coordsCompletas.push(...dataOSRM.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
                 }
             } catch (errOSRM) {
-                console.error("Falha no lote de roteamento de Backup (OSRM)", errOSRM);
+                console.warn("[Rota Ninja] Falha no lote OSRM de Backup:", errOSRM);
             }
         }
 
-        // 3. O "FREIO ABS" (Delay de 1 segundo)
-        // Isso impede que 50 motoboys no Hub sejam bloqueados por excesso de disparos no mesmo IP
+        // 3. FREIO ABS GLOBAL (Delay de 1 segundo real)
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
-
     return coordsCompletas;
 }
 // =========================================================================
 
-// --- RECUPERAÇÃO DO ESTADO SALVO (AO ABRIR O APP) E VERIFICAÇÃO DO CONSENTIMENTO ---
+// --- RECUPERAÇÃO DO ESTADO SALVO (AO ABRIR O APP) ---
 window.addEventListener('load', function() {
     let estadoStr = localStorage.getItem('spx_ninja_estado');
     if (estadoStr) {
@@ -107,7 +154,6 @@ window.addEventListener('load', function() {
         }
     }
 
-    // Verificação da barrinha de aceite do AdSense (Única vez)
     if (!localStorage.getItem('spx_ninja_termos_aceitos')) {
         let barra = document.getElementById('aviso-consentimento');
         if (barra) barra.style.display = 'flex';
@@ -120,7 +166,7 @@ function aceitarTermosAdSense() {
     if (barra) barra.style.display = 'none';
 }
 
-// --- SALVAMENTO E CARREGAMENTO DE ROTAS ---
+// --- SALVAMENTO E CARREGAMENTO DE ROTAS (PROTEGIDO CONTRA CORRUPÇÃO DE DATAS E LEAKS) ---
 function salvarEstadoRota() {
     if (!rotaSpx || rotaSpx.length === 0) return;
     
@@ -144,7 +190,7 @@ function salvarEstadoRota() {
         globalTempoOcioso: globalTempoOcioso,
         globalTempoMovimento: globalTempoMovimento,
         globalKmRealPercorrida: globalKmRealPercorrida,
-        historicoParadas: historicoParadas,
+        historicoParadas: historicoParadas, // Grava como ISO string automaticamente
         planilha: planilhaStopsData.map(p => ({...p, gpsMarker: null, marker: null})),
         rotaSpx: rotaSpx.map(r => (typeof r === 'object' ? {...r, gpsMarker: null, marker: null} : r)),
         vagas: vagasLimpar
@@ -160,32 +206,44 @@ function continuarRotaSalva() {
     
     isRotaManual = estado.isRotaManual;
     horaInicioExpediente = new Date(estado.horaInicioExpediente);
-    window.destinoSalvo = estado.idxDestino; 
     globalKmPadrao = estado.globalKmPadrao;
     globalKmOtimizada = estado.globalKmOtimizada;
     globalTempoOcioso = estado.globalTempoOcioso || 0;
     globalTempoMovimento = estado.globalTempoMovimento || 0;
     globalKmRealPercorrida = estado.globalKmRealPercorrida || 0;
-    historicoParadas = estado.historicoParadas;
+    
+    // CORREÇÃO CRÍTICA: Revivendo as Datas para não gerar NaN
+    historicoParadas = (estado.historicoParadas || []).map(h => ({
+        ...h,
+        hora: new Date(h.hora) 
+    }));
+
     planilhaStopsData = estado.planilha;
     rotaSpx = estado.rotaSpx;
 
     if (isRotaManual && estado.vagas) {
         vagasCriadas = estado.vagas.map(v => {
             return {
-                marker: { spxId: v.id, getLatLng: () => ({lat: v.lat, lng: v.lon}) },
+                marker: { 
+                    spxId: v.id, 
+                    getLatLng: () => ({lat: v.lat, lng: v.lon}),
+                    __isRealLeafletMarker: false // ALERTA: Isto é um mock para restauração!
+                },
                 sugados: v.sugados.map(sId => ({ spxId: sId }))
             };
         });
     }
 
+    // Reconstrói a indexação O(1) do mapa
+    reconstruirIndices();
     baixarRadaresDaRegiao(planilhaStopsData);
     
     esconderTodasTelas();
     mostrarTela('tela-navegacao');
     
+    // CORREÇÃO: Passando idxDestino de forma limpa, sem usar variável global (window.destinoSalvo)
     if (typeof iniciarInterfaceGPS === "function") {
-        iniciarInterfaceGPS();
+        iniciarInterfaceGPS(estado.idxDestino);
     }
 }
 
@@ -216,22 +274,15 @@ function avancarParaDesenhoManual(isSilent = false) {
             localStorage.setItem('spx_ninja_hide_manual_guide', 'true');
         }
     }
-    
     esconderTodasTelas();
-    
-    if (typeof iniciarMapeamentoManual === "function") {
-        iniciarMapeamentoManual(); 
-    } else {
-        alert("O motor manual ainda não foi carregado.");
-    }
+    if (typeof iniciarMapeamentoManual === "function") iniciarMapeamentoManual(); 
+    else alert("O motor manual ainda não foi carregado.");
 }
 
 function prepararGuiaDocaManual() {
     esconderTodasTelas();
     if (localStorage.getItem('spx_ninja_hide_doca_manual') === 'true') {
-        if (typeof finalizarMapeamentoManual === "function") {
-            finalizarMapeamentoManual(); 
-        }
+        if (typeof finalizarMapeamentoManual === "function") finalizarMapeamentoManual(); 
     } else {
         mostrarTela('modal-guia-doca-manual', 'block');
     }
@@ -239,12 +290,8 @@ function prepararGuiaDocaManual() {
 
 function avancarParaDocaManualReal() {
     let chk = document.getElementById('chk-nao-mostrar-doca-manual');
-    if (chk && chk.checked) {
-        localStorage.setItem('spx_ninja_hide_doca_manual', 'true');
-    }
-    if (typeof finalizarMapeamentoManual === "function") {
-        finalizarMapeamentoManual();
-    }
+    if (chk && chk.checked) localStorage.setItem('spx_ninja_hide_doca_manual', 'true');
+    if (typeof finalizarMapeamentoManual === "function") finalizarMapeamentoManual();
 }
 
 function prepararIdaParaGPS() {
@@ -259,17 +306,11 @@ function prepararIdaParaGPS() {
 function avancarParaMapaReal(isSilent = false) {
     if (!isSilent) {
         let chk = document.getElementById('chk-nao-mostrar-gps');
-        if (chk && chk.checked) {
-            localStorage.setItem('spx_ninja_hide_guide', 'true');
-        }
+        if (chk && chk.checked) localStorage.setItem('spx_ninja_hide_guide', 'true');
     }
-    
     esconderTodasTelas();
     mostrarTela('tela-navegacao');
-    
-    if (typeof iniciarInterfaceGPS === "function") {
-        iniciarInterfaceGPS();
-    }
+    if (typeof iniciarInterfaceGPS === "function") iniciarInterfaceGPS(); // Assume default idx = 0
 }
 
 function iniciarModoAutomatico() { 
@@ -308,37 +349,31 @@ function extrairRuaPadrao(enderecoBruto) {
     return limpo.trim();
 }
 
-// --- FORMATADOR DE ENDEREÇOS ---
 function formatarEnderecos(listaEnderecos, lat, lon) {
-    // CÓDIGO ATUAL (GRATUITO E ESTÁTICO): Apenas exibe o texto sem clique
     return listaEnderecos.map(end => `<div class="endereco-item">${end.toUpperCase().replace(/(\d+)/g, '<span class="num-box">$1</span>')}</div>`).join('');
-}
-
-function abrirFotoStreetView(endereco, lat, lon) {
-    let imgEl = document.getElementById('street-view-img');
-    let modalEl = document.getElementById('modal-street-view');
-    if (!imgEl || !modalEl) return;
-
-    let suaChaveAPI = "COLOQUE_SUA_CHAVE_AQUI"; 
-
-    if (lat && lon && lat !== 0 && lon !== 0) {
-        imgEl.src = `https://maps.googleapis.com/maps/api/streetview?size=600x600&location=${lat},${lon}&fov=90&heading=235&pitch=10&key=${suaChaveAPI}`;
-    } else {
-        let query = encodeURIComponent(endereco);
-        imgEl.src = `https://maps.googleapis.com/maps/api/streetview?size=600x600&location=${query}&fov=90&heading=235&pitch=10&key=${suaChaveAPI}`;
-    }
-    modalEl.style.display = 'flex';
 }
 
 async function requestWakeLock() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {} }
 function releaseWakeLock() { if (wakeLock !== null) { wakeLock.release(); wakeLock = null; } }
 function initAudio() { try { window.AudioContext = window.AudioContext || window.webkitAudioContext; if (!audioCtx) audioCtx = new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch(e) {} }
 function playBipeRadar() { if (!audioCtx) return; try { let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain(); osc.connect(gain); gain.connect(audioCtx.destination); osc.type = 'square'; osc.frequency.value = 880; gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3); osc.start(audioCtx.currentTime); osc.stop(audioCtx.currentTime + 0.3); } catch(e) {} }
-async function baixarRadaresDaRegiao(rota) { if (!rota || rota.length === 0) return; try { let lats = rota.map(p => p.lat), lons = rota.map(p => p.lon); let minLat = Math.min(...lats) - 0.015, maxLat = Math.max(...lats) + 0.015, minLon = Math.min(...lons) - 0.015, maxLon = Math.max(...lons) + 0.015; let query = `[out:json][timeout:15];node["highway"="speed_camera"](${minLat},${minLon},${maxLat},${maxLon});out;`; let res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`); let data = await res.json(); if (data && data.elements) listaRadares = data.elements.map(e => ({ lat: e.lat, lon: e.lon, speed: e.tags.maxspeed || "" })); } catch(e) {} }
+
+async function baixarRadaresDaRegiao(rota) { 
+    if (!rota || rota.length === 0) return; 
+    try { 
+        let lats = rota.map(p => p.lat), lons = rota.map(p => p.lon); 
+        let minLat = Math.min(...lats) - 0.015, maxLat = Math.max(...lats) + 0.015, minLon = Math.min(...lons) - 0.015, maxLon = Math.max(...lons) + 0.015; 
+        let query = `[out:json][timeout:15];node["highway"="speed_camera"](${minLat},${minLon},${maxLat},${maxLon});out;`; 
+        let res = await fetchComTimeout(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`, {}, 10000); 
+        let data = await res.json(); 
+        if (data && data.elements) listaRadares = data.elements.map(e => ({ lat: e.lat, lon: e.lon, speed: e.tags.maxspeed || "" })); 
+    } catch(e) {
+        console.warn("[Rota Ninja] Falha ao baixar radares da região (Overpass). Radares inativos.", e);
+    } 
+}
 
 async function enviarContato(event) {
     event.preventDefault(); 
-    
     let seuEmailPessoal = "22415a1827e214478c05b0e774d99d72"; 
     
     let nome = document.getElementById('contato-nome').value;
@@ -351,38 +386,22 @@ async function enviarContato(event) {
     btnSubmit.disabled = true;
 
     try {
-        let response = await fetch(`https://formsubmit.co/ajax/${seuEmailPessoal}`, {
+        await fetchComTimeout(`https://formsubmit.co/ajax/${seuEmailPessoal}`, {
             method: "POST",
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({
-                Nome: nome,
-                Email_Motorista: email,
-                Mensagem: mensagem,
-                _subject: "Nova Mensagem do App Rota Ninja!", 
-                _captcha: "false" 
-            })
-        });
-
-        if (!response.ok) throw new Error("Falha na comunicação com o servidor.");
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ Nome: nome, Email_Motorista: email, Mensagem: mensagem, _subject: "Nova Mensagem Rota Ninja!", _captcha: "false" })
+        }, 8000);
 
         btnSubmit.innerText = textoOriginal;
         btnSubmit.disabled = false;
         document.getElementById('form-contato').reset(); 
         event.target.parentElement.parentElement.classList.remove('active'); 
-
-        setTimeout(() => {
-            alert(`Obrigado, ${nome}! Sua mensagem foi enviada com sucesso para a nossa equipe.`);
-        }, 150);
+        setTimeout(() => alert(`Obrigado, ${nome}! Sua mensagem foi enviada.`), 150);
 
     } catch (error) {
         btnSubmit.innerText = textoOriginal;
         btnSubmit.disabled = false;
-        
-        setTimeout(() => {
-            alert("Ocorreu um erro ao enviar sua mensagem. Verifique sua conexão e tente novamente.");
-        }, 150);
+        setTimeout(() => alert("Ocorreu um erro ao enviar. Verifique sua conexão e tente novamente."), 150);
+        console.warn("[Rota Ninja] Erro ao enviar contato:", error);
     }
 }
