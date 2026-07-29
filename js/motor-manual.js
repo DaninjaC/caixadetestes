@@ -12,6 +12,9 @@ let camadaPinosManual = L.layerGroup();
 let modoDesenho = false, desenhando = false;
 let startX = 0, startY = 0, mudouDeLugar = false, houveCapturaNesteCiclo = false;
 
+// CORREÇÃO CRÍTICA (Prevenção de Memory Leaks de Listeners Duplicados)
+let vidroListenersVinculados = false; 
+
 function iniciarMapeamentoManual() {
     isRotaManual = true; 
     esconderTodasTelas();
@@ -23,7 +26,6 @@ function iniciarMapeamentoManual() {
 function montarMapaDesenho() {
     if (!mapDesenho) {
         mapDesenho = L.map('mapa-desenho', { zoomControl: false }).setView([-23.615, -46.575], 14);
-        // Mapa Claro de Alto Contraste
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapDesenho);
         linhaDedoDesenho = L.polyline([], { color: '#FFCC00', weight: 4, opacity: 0.8, dashArray: '10, 10' }).addTo(mapDesenho);
         rotaRealDesenho = L.polyline([], { color: '#007AFF', weight: 5, opacity: 0.9 }).addTo(mapDesenho);
@@ -65,39 +67,50 @@ function toggleModoDesenho() {
     }
 }
 
+// CORREÇÃO CRÍTICA (Arquitetura Idempotente para os toques)
 function vincularEventosVidro() {
+    if (vidroListenersVinculados) return; // Garante que nunca empilhe eventos duplicados
+    vidroListenersVinculados = true;
+
     const vidro = document.getElementById('camada-desenho');
-    
-    vidro.addEventListener('pointerdown', function(e) {
-        desenhando = true; mudouDeLugar = false; houveCapturaNesteCiclo = false;
-        startX = e.clientX; startY = e.clientY;
-        let latlng = mapDesenho.containerPointToLatLng([e.clientX - vidro.getBoundingClientRect().left, e.clientY - vidro.getBoundingClientRect().top]);
-        linhaDedoDesenho.setLatLngs([latlng]);
-        verificarCapturaManual(latlng);
-    });
+    vidro.addEventListener('pointerdown', onPointerDownDesenho);
+    vidro.addEventListener('pointermove', onPointerMoveDesenho);
+    vidro.addEventListener('pointerup', onPointerUpDesenho);
+}
 
-    vidro.addEventListener('pointermove', function(e) {
-        if (!desenhando) return;
-        if (Math.sqrt((e.clientX - startX)**2 + (e.clientY - startY)**2) > 8) mudouDeLugar = true;
-        let latlng = mapDesenho.containerPointToLatLng([e.clientX - vidro.getBoundingClientRect().left, e.clientY - vidro.getBoundingClientRect().top]);
-        linhaDedoDesenho.addLatLng(latlng);
-        verificarCapturaManual(latlng);
-    });
+// Funções nomeadas para prevenir vazamento de closure
+function onPointerDownDesenho(e) {
+    const vidro = document.getElementById('camada-desenho');
+    desenhando = true; mudouDeLugar = false; houveCapturaNesteCiclo = false;
+    startX = e.clientX; startY = e.clientY;
+    let latlng = mapDesenho.containerPointToLatLng([e.clientX - vidro.getBoundingClientRect().left, e.clientY - vidro.getBoundingClientRect().top]);
+    linhaDedoDesenho.setLatLngs([latlng]);
+    verificarCapturaManual(latlng);
+}
 
-    vidro.addEventListener('pointerup', function(e) {
-        if (!desenhando) return;
-        desenhando = false; linhaDedoDesenho.setLatLngs([]);
-        let latlng = mapDesenho.containerPointToLatLng([e.clientX - vidro.getBoundingClientRect().left, e.clientY - vidro.getBoundingClientRect().top]);
+function onPointerMoveDesenho(e) {
+    if (!desenhando) return;
+    const vidro = document.getElementById('camada-desenho');
+    if (Math.sqrt((e.clientX - startX)**2 + (e.clientY - startY)**2) > 8) mudouDeLugar = true;
+    let latlng = mapDesenho.containerPointToLatLng([e.clientX - vidro.getBoundingClientRect().left, e.clientY - vidro.getBoundingClientRect().top]);
+    linhaDedoDesenho.addLatLng(latlng);
+    verificarCapturaManual(latlng);
+}
 
-        if (!mudouDeLugar && !houveCapturaNesteCiclo) {
-            if (confirm(`Deseja criar a "Vaga ${vagaCount + 1}" neste local da rua?`)) {
-                encaixarVagaNoAsfalto(latlng); return;
-            }
+function onPointerUpDesenho(e) {
+    if (!desenhando) return;
+    const vidro = document.getElementById('camada-desenho');
+    desenhando = false; linhaDedoDesenho.setLatLngs([]);
+    let latlng = mapDesenho.containerPointToLatLng([e.clientX - vidro.getBoundingClientRect().left, e.clientY - vidro.getBoundingClientRect().top]);
+
+    if (!mudouDeLugar && !houveCapturaNesteCiclo) {
+        if (confirm(`Deseja criar a "Vaga ${vagaCount + 1}" neste local da rua?`)) {
+            encaixarVagaNoAsfalto(latlng); return;
         }
-        let ult = historicoDeRoteamento[historicoDeRoteamento.length - 1];
-        if (sequenciaSelecionada.length > ult.length) historicoDeRoteamento.push([...sequenciaSelecionada]);
-        atualizarTratamentoAsfaltoManual();
-    });
+    }
+    let ult = historicoDeRoteamento[historicoDeRoteamento.length - 1];
+    if (sequenciaSelecionada.length > ult.length) historicoDeRoteamento.push([...sequenciaSelecionada]);
+    atualizarTratamentoAsfaltoManual();
 }
 
 function verificarCapturaManual(latlng) {
@@ -119,30 +132,42 @@ async function encaixarVagaNoAsfalto(latlng) {
     
     let rLatLng = latlng;
     
-    // Motor Híbrido também para o magnetismo da vaga!
     try {
         let usouLocationIQ = false;
+
+        // Se estava bloqueado, verifica se já pode tentar novamente
+        if (!usarLocationIQComChave && Date.now() > proximaTentativaLocationIQ) {
+            usarLocationIQComChave = true;
+        }
+
         if (usarLocationIQComChave) {
             try {
-                let res = await fetch(`https://us1.locationiq.com/v1/nearest/driving/${latlng.lng},${latlng.lat}?key=${LOCATIONIQ_KEY}`);
+                // Fetch Seguro com Timeout para não travar a tela
+                let res = await fetchComTimeout(`https://us1.locationiq.com/v1/nearest/driving/${latlng.lng},${latlng.lat}?key=${LOCATIONIQ_KEY}`, {}, 6000);
                 let data = await res.json();
+                
                 if (data.code === 'Ok' && data.waypoints?.length > 0) {
                     let loc = data.waypoints[0].location; rLatLng = L.latLng(loc[1], loc[0]);
                     usouLocationIQ = true;
                 } else if (data.error) {
-                    usarLocationIQComChave = false; // Desarma se a cota estourou
+                    throw { status: 403, message: "Erro API" };
                 }
-            } catch(e) { usarLocationIQComChave = false; }
+            } catch(e) { 
+                usarLocationIQComChave = false;
+                if (e.status === 429) proximaTentativaLocationIQ = Date.now() + 30000;
+                else if (e.status === 403 || e.status === 401) proximaTentativaLocationIQ = Date.now() + 300000;
+                else proximaTentativaLocationIQ = Date.now() + 15000;
+            }
         }
 
         if (!usouLocationIQ) {
-            let res = await fetch(`https://router.project-osrm.org/nearest/v1/driving/${latlng.lng},${latlng.lat}`);
+            let res = await fetchComTimeout(`https://router.project-osrm.org/nearest/v1/driving/${latlng.lng},${latlng.lat}`, {}, 8000);
             let data = await res.json();
             if (data.code === 'Ok' && data.waypoints?.length > 0) {
                 let loc = data.waypoints[0].location; rLatLng = L.latLng(loc[1], loc[0]);
             }
         }
-    } catch(e) { console.error("Falha ao alinhar vaga ao asfalto.", e); }
+    } catch(e) { console.warn("[Rota Ninja] Falha ao alinhar vaga ao asfalto.", e); }
 
     vagaCount++;
     let vId = "Vaga " + vagaCount;
@@ -166,6 +191,10 @@ async function encaixarVagaNoAsfalto(latlng) {
     });
     
     vagasCriadas.push(objVaga);
+    
+    // CORREÇÃO CRÍTICA: Reindexação O(1) necessária após criar a vaga!
+    if (typeof reconstruirIndices === "function") reconstruirIndices();
+
     document.getElementById('btn-undo-vaga').style.display = 'inline-block';
     document.getElementById('status-texto-desenho').innerText = `✅ ${vId} fixada!`;
     document.getElementById('ordem-selecionada-desenho').innerHTML = txtOrdemLegenda();
@@ -205,6 +234,10 @@ function desfazerUltimaVaga() {
         v.conectoras.forEach(l => mapDesenho.removeLayer(l));
         v.sugados.forEach(m => { m.isGrouped = false; m.setStyle({ fillColor: m.corOriginal, color: '#fff', weight: 2, dashArray: '' }); });
         vagaCount--;
+        
+        // CORREÇÃO CRÍTICA: Reindexação O(1) necessária após remover a vaga!
+        if (typeof reconstruirIndices === "function") reconstruirIndices();
+
         if (vagasCriadas.length === 0) document.getElementById('btn-undo-vaga').style.display = 'none';
         document.getElementById('ordem-selecionada-desenho').innerHTML = txtOrdemLegenda();
         document.getElementById('ordem-selecionada-desenho').scrollLeft = 99999;
@@ -215,18 +248,18 @@ function desfazerUltimaVaga() {
 async function atualizarTratamentoAsfaltoManual() {
     if (sequenciaSelecionada.length <= 1) { rotaRealDesenho.setLatLngs([]); return; }
     try {
-        // Agora envia apenas um Array de coordenadas para a Central do main.js resolver
         let todasCoords = sequenciaSelecionada.map(id => {
             let m = marcadoresDesenho.find(x => x.spxId === id); 
             return [m.spxLatLng.lng, m.spxLatLng.lat];
         });
         
+        // Envia para o Fatiador + Híbrido + Filas Seguras no main.js
         let coordsCompletas = await requisitarRotaHibrida(todasCoords);
         
         if (coordsCompletas.length > 0) {
             rotaRealDesenho.setLatLngs(coordsCompletas);
         }
-    } catch(e) { console.error("Erro no roteamento manual", e); }
+    } catch(e) { console.warn("[Rota Ninja] Erro no roteamento manual:", e); }
 }
 
 function finalizarMapeamentoManual() {
