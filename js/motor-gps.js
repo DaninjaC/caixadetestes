@@ -15,7 +15,7 @@ let passosNavegacao = [], distAnteriorCurva = Infinity;
 let latAntGps = null, lonAntGps = null, headingCarro = null;
 let aguardandoConfirmacao = false;
 
-// NOVA VARIÁVEL: Cronômetro de tempo de volante
+// Cronômetro de tempo de volante
 let ultimaHoraMovimento = null;
 
 function getAlvoData(index) {
@@ -55,12 +55,12 @@ function iniciarInterfaceGPS() {
     initAudio(); requestWakeLock();
     
     if (!horaInicioExpediente) horaInicioExpediente = new Date();
-    
-    // Inicia o cronômetro de movimento assim que abre o GPS
     ultimaHoraMovimento = new Date();
 
     if (!mapGps) {
         mapGps = L.map('mapa-gps', { zoomControl: false, attributionControl: false }).setView([-23.615, -46.575], 18);
+        
+        // Mapa Tático Claro - Esri World Street (Sem cota)
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapGps);
         camadaFundoGps.addTo(mapGps);
         
@@ -109,26 +109,13 @@ function iniciarInterfaceGPS() {
 async function desenharTrilhaMestreFixaCompleta() {
     if (rotaSpx.length <= 1) return;
     try {
-        let coordsCompletas = [];
-        // CORREÇÃO CRÍTICA DO ARQUITETO: O LocationIQ corta rotas com mais de 25 pontos.
-        let maxPontos = 24; 
+        // Envia as coordenadas para a nova Central do Motor Híbrido (main.js)
+        let todasCoords = rotaSpx.map((_, i) => {
+            let alvo = getAlvoData(i);
+            return [alvo.lon, alvo.lat];
+        });
         
-        for (let i = 0; i < rotaSpx.length - 1; i += (maxPontos - 1)) {
-            let lote = rotaSpx.slice(i, i + maxPontos);
-            let urlCoords = lote.map((_, idxLote) => {
-                let alvo = getAlvoData(i + idxLote);
-                return `${alvo.lon},${alvo.lat}`;
-            }).join(';');
-            
-            let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${urlCoords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
-            let data = await res.json();
-            
-            // TRAVA DE SEGURANÇA: Evita que a linha preta quebre se houver excesso de coordenadas
-            if (data.code === "Ok" && data.routes?.length > 0) {
-                coordsCompletas.push(...data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
-            }
-        }
-        
+        let coordsCompletas = await requisitarRotaHibrida(todasCoords);
         if (coordsCompletas.length > 0) {
             trilhaMestreGps.setLatLngs(coordsCompletas);
         }
@@ -143,11 +130,16 @@ async function atualizarProximaPernaRoxa() {
     try {
         let alvoAtual = getAlvoData(idxDestino);
         let alvoProx = getAlvoData(idxDestino + 1);
-        let coords = `${alvoAtual.lon},${alvoAtual.lat};${alvoProx.lon},${alvoProx.lat}`;
         
-        let res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${coords}?key=${LOCATIONIQ_KEY}&overview=full&geometries=geojson`);
-        let data = await res.json();
-        if (data.routes?.length > 0) proximaPernaGps.setLatLngs(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+        // Usa o Motor Híbrido para blindar até a linha roxa de previsão
+        let coordsCompletas = await requisitarRotaHibrida([
+            [alvoAtual.lon, alvoAtual.lat], 
+            [alvoProx.lon, alvoProx.lat]
+        ]);
+        
+        if (coordsCompletas.length > 0) {
+            proximaPernaGps.setLatLngs(coordsCompletas);
+        }
     } catch(e){}
 }
 
@@ -155,10 +147,9 @@ function ativarRastreamentoGeolocalizacaoAtiva() {
     idRastreadorGps = navigator.geolocation.watchPosition(async pos => {
         minhaLat = pos.coords.latitude; minhaLon = pos.coords.longitude;
         
-        // --- ODÔMETRO REAL: Soma a quilometragem percorrida ---
+        // Odômetro Real
         if (latAntGps !== null && lonAntGps !== null) {
             let distPercorrida = dist(latAntGps, lonAntGps, minhaLat, minhaLon);
-            // Ignora tremidas de sinal menores que 2 metros ou saltos absurdos maiores que 150m no mesmo segundo
             if (distPercorrida > 2 && distPercorrida < 150) {
                 globalKmRealPercorrida += (distPercorrida / 1000);
             }
@@ -170,6 +161,7 @@ function ativarRastreamentoGeolocalizacaoAtiva() {
         if (!markerUserGps) markerUserGps = L.circleMarker([minhaLat, minhaLon], { color: '#007AFF', fillOpacity: 1, radius: 8, zIndexOffset: 1000 }).addTo(mapGps);
         else markerUserGps.setLatLng([minhaLat, minhaLon]);
 
+        // Radares
         if (listaRadares.length > 0) {
             let radarProx = null, mDist = Infinity;
             listaRadares.forEach(r => { let dR = dist(minhaLat, minhaLon, r.lat, r.lon); if (dR <= 75 && dR < mDist) { mDist = dR; radarProx = r; } });
@@ -187,7 +179,6 @@ function ativarRastreamentoGeolocalizacaoAtiva() {
             processarLogicaGuiamentoNavegacao();
         }
 
-        // --- ZOOM DINÂMICO ---
         let zoomDesejado = aguardandoConfirmacao ? 16 : 18;
         if (mapGps.getZoom() !== zoomDesejado) mapGps.setZoom(zoomDesejado);
         mapGps.panTo([minhaLat, minhaLon]);
@@ -226,10 +217,32 @@ async function recalcularRotaGpsTaticaProximoAlvo() {
     markerDestGps = L.circleMarker([alvo.lat, alvo.lon], { radius: 11, color: '#fff', fillColor: '#007AFF', fillOpacity: 1, weight: 3 }).addTo(mapGps);
 
     try {
-        let url = `https://us1.locationiq.com/v1/directions/driving/${minhaLon},${minhaLat};${alvo.lon},${alvo.lat}?key=${LOCATIONIQ_KEY}&steps=true&overview=full&geometries=geojson`;
-        if (headingCarro !== null) url += `&bearings=${headingCarro},60;`;
-        let res = await fetch(url); let data = await res.json();
-        if (data.routes?.length > 0) {
+        // FAILOVER ESPECÍFICO PARA OS PASSOS DA NAVEGAÇÃO
+        let strCoords = `${minhaLon},${minhaLat};${alvo.lon},${alvo.lat}`;
+        let params = `&steps=true&overview=full&geometries=geojson`;
+        if (headingCarro !== null) params += `&bearings=${headingCarro},60;`;
+
+        let res, data;
+        let usouLocationIQ = false;
+
+        if (usarLocationIQComChave) {
+            try {
+                res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${strCoords}?key=${LOCATIONIQ_KEY}${params}`);
+                data = await res.json();
+                if (data.code === "Ok" && data.routes?.length > 0) {
+                    usouLocationIQ = true;
+                } else if (data.error) {
+                    usarLocationIQComChave = false;
+                }
+            } catch(e) { usarLocationIQComChave = false; }
+        }
+
+        if (!usouLocationIQ) {
+            res = await fetch(`https://router.project-osrm.org/route/v1/driving/${strCoords}?${params.substring(1)}`);
+            data = await res.json();
+        }
+
+        if (data && data.routes?.length > 0) {
             const r = data.routes[0];
             passosNavegacao = r.legs[0].steps.map(s => ({ lat: s.maneuver.location[1], lon: s.maneuver.location[0], manobra: s.maneuver.modifier || s.maneuver.type || "", rua: s.name || "Frente" }));
             idxPasso = 0; distAnteriorCurva = Infinity;
@@ -245,13 +258,12 @@ function processarLogicaGuiamentoNavegacao() {
     document.getElementById('rodape-rua').innerText = "PREVISÃO DE CHEGADA";
     document.getElementById('rodape-dist').innerText = Math.ceil((dFinal/5.5)/60) + " min";
 
-    // --- ENTRADA NA ZONA DE 30 METROS ---
+    // Entrada na zona de 30 metros
     if (dFinal < 30) {
         if (!aguardandoConfirmacao) {
             aguardandoConfirmacao = true; 
             releaseWakeLock(); 
             
-            // Pausa o cronômetro de movimento, pois agora o motorista desceu do carro
             if (ultimaHoraMovimento) {
                 globalTempoMovimento += (new Date() - ultimaHoraMovimento);
             }
@@ -344,14 +356,12 @@ function finalizarParadaAtual(status) {
     let agora = new Date();
     let tempoGasto = historicoParadas.length === 0 ? (agora - horaInicioExpediente) : (agora - historicoParadas[historicoParadas.length - 1].hora);
 
-    // --- FILTRO ANTI-OCIOSIDADE ---
     if (tempoGasto > 45 * 60 * 1000) { 
         let excesso = tempoGasto - (15 * 60 * 1000); 
         globalTempoOcioso += excesso;
         tempoGasto = 15 * 60 * 1000; 
     }
 
-    // Se ele forçou a baixa pelo menu longe do cliente, computa o movimento aqui
     if (!aguardandoConfirmacao && ultimaHoraMovimento) {
         globalTempoMovimento += (agora - ultimaHoraMovimento);
     }
@@ -365,7 +375,6 @@ function finalizarParadaAtual(status) {
     if (typeof salvarEstadoRota === "function") salvarEstadoRota();
 
     aguardandoConfirmacao = false; requestWakeLock();
-    // Reinicia o relógio do movimento para a próxima perna da viagem
     ultimaHoraMovimento = new Date(); 
 
     document.getElementById('painel-rodape').style.display = 'block';
@@ -449,7 +458,6 @@ function forcarBaixaMenu(e, index, status) {
     let agora = new Date();
     let tempoGasto = historicoParadas.length === 0 ? (agora - horaInicioExpediente) : (agora - historicoParadas[historicoParadas.length - 1].hora);
 
-    // --- FILTRO ANTI-OCIOSIDADE ---
     if (tempoGasto > 45 * 60 * 1000) { 
         let excesso = tempoGasto - (15 * 60 * 1000); 
         globalTempoOcioso += excesso;
@@ -514,12 +522,10 @@ function avaliarConclusaoExpedienteTotal() {
     releaseWakeLock();
     esconderTodasTelas();
     
-    // Calcula o tempo bruto total do app aberto e desconta as pausas pesadas (almoço, soneca)
     let totalMsBruto = new Date() - horaInicioExpediente; 
     let totalMs = totalMsBruto - globalTempoOcioso; 
     if (totalMs <= 0) totalMs = 1000;
     
-    // Calcula Tempo de Porta (Pausado) e Tempo de Volante (Movimento)
     let totalMovimento = globalTempoMovimento;
     let totalPausado = totalMsBruto - totalMovimento; 
     if (totalPausado < 0) totalPausado = 0;
@@ -534,13 +540,11 @@ function avaliarConclusaoExpedienteTotal() {
     let taxa = totalVols > 0 ? ((concluidos / totalVols) * 100).toFixed(1) : 0;
     let ritmo = totalMs > 0 ? Math.round(concluidos / (totalMs / 3600000)) : 0;
 
-    // --- CORREÇÃO DA ENTREGA RÁPIDA (Filtra "0m 0s" e bugs do dedo nervoso) ---
     let paradasValidas = historicoParadas.filter(p => p.ms > 30000);
     let rapida = paradasValidas.sort((a,b) => a.ms - b.ms)[0];
     if (!rapida) rapida = historicoParadas.sort((a,b) => a.ms - b.ms)[0]; 
     let txtRapida = rapida ? `${Math.floor(rapida.ms/60000)}m ${Math.floor((rapida.ms%60000)/1000)}s (Stop ${rapida.stop})` : '--';
 
-    // Insere os dados nas caixinhas do HTML
     document.getElementById('rel-movimento').innerText = Math.floor(totalMovimento/3600000) + "h " + Math.floor((totalMovimento%3600000)/60000) + "m";
     document.getElementById('rel-ocioso').innerText = Math.floor(totalPausado/3600000) + "h " + Math.floor((totalPausado%3600000)/60000) + "m";
     document.getElementById('rel-km-real').innerText = globalKmRealPercorrida.toFixed(1) + " km";
