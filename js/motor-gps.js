@@ -18,12 +18,17 @@ let aguardandoConfirmacao = false;
 // Cronômetro de tempo de volante
 let ultimaHoraMovimento = null;
 
+// TRAVAS DE CONCORRÊNCIA PARA EVITAR RACE CONDITIONS NO GPS
+let requisicaoNavegacaoEmAndamento = false;
+let tokenNavegacaoAtual = 0;
+
 function getAlvoData(index) {
+    // CORREÇÃO CRÍTICA (O(n²) para O(1)): Agora utiliza os Maps criados no main.js
     if (isRotaManual) {
         let idAlvo = rotaSpx[index];
         if (idAlvo.startsWith("Vaga")) {
-            let v = vagasCriadas.find(x => x.marker.spxId === idAlvo);
-            let pacotes = v.sugados.map(m => planilhaStopsData.find(p => p.stop === m.spxId));
+            let v = indiceVagasPorId.get(idAlvo); // Busca O(1)
+            let pacotes = v.sugados.map(m => indicePlanilhaPorStop.get(m.spxId)); // Busca O(1)
             return {
                 id: idAlvo, isVaga: true, lat: v.marker.getLatLng().lat, lon: v.marker.getLatLng().lng,
                 pacotes: pacotes, totalVol: pacotes.reduce((a, b) => a + b.pacotes, 0),
@@ -32,7 +37,7 @@ function getAlvoData(index) {
                 status: pacotes[0].status 
             };
         } else {
-            let p = planilhaStopsData.find(x => x.stop === idAlvo);
+            let p = indicePlanilhaPorStop.get(idAlvo); // Busca O(1)
             return { 
                 id: idAlvo, isVaga: false, lat: p.lat, lon: p.lon, 
                 pacotes: [p], totalVol: p.pacotes, comercial: p.comercial, obj: p,
@@ -51,16 +56,18 @@ function getAlvoData(index) {
     }
 }
 
-function iniciarInterfaceGPS() {
+// CORREÇÃO: Limpando a variável global e aceitando o parâmetro de forma limpa
+function iniciarInterfaceGPS(idxInicial = 0) {
     initAudio(); requestWakeLock();
     
     if (!horaInicioExpediente) horaInicioExpediente = new Date();
     ultimaHoraMovimento = new Date();
+    
+    // Garante a criação dos índices de busca ultra-rápida (O(1))
+    reconstruirIndices(); 
 
     if (!mapGps) {
         mapGps = L.map('mapa-gps', { zoomControl: false, attributionControl: false }).setView([-23.615, -46.575], 18);
-        
-        // Mapa Tático Claro - Esri World Street (Sem cota)
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapGps);
         camadaFundoGps.addTo(mapGps);
         
@@ -81,13 +88,13 @@ function iniciarInterfaceGPS() {
         }).bindTooltip(alvo.isVaga ? alvo.id : (alvo.obj.extra ? "Extra" : "Stop " + alvo.id), { permanent: true, direction: 'top', className: 'stop-label' }).addTo(camadaFundoGps);
 
         if(isRotaManual) {
-            if (alvo.isVaga) vagasCriadas.find(x => x.marker.spxId === alvo.id).gpsMarker = marker;
-            else planilhaStopsData.find(x => x.stop === alvo.id).gpsMarker = marker;
+            if (alvo.isVaga) indiceVagasPorId.get(alvo.id).gpsMarker = marker;
+            else indicePlanilhaPorStop.get(alvo.id).gpsMarker = marker;
             
             if (alvo.isVaga) {
-                let v = vagasCriadas.find(x => x.marker.spxId === alvo.id);
+                let v = indiceVagasPorId.get(alvo.id);
                 if(v.sugados) v.sugados.forEach(m => {
-                    let pData = planilhaStopsData.find(x => x.stop === m.spxId);
+                    let pData = indicePlanilhaPorStop.get(m.spxId);
                     let mLat = pData ? [pData.lat, pData.lon] : (m.getLatLng ? m.getLatLng() : [0,0]);
                     L.circleMarker(mLat, { radius: 5, color: '#007AFF', fillColor: '#111', fillOpacity: 0.6, weight: 1, dashArray: '2,2' }).addTo(camadaFundoGps);
                 });
@@ -97,7 +104,7 @@ function iniciarInterfaceGPS() {
         }
     }
 
-    idxDestino = typeof window.destinoSalvo !== 'undefined' ? window.destinoSalvo : 0;
+    idxDestino = idxInicial;
     
     desenharTrilhaMestreFixaCompleta();
     atualizarProximaPernaRoxa();
@@ -106,10 +113,17 @@ function iniciarInterfaceGPS() {
     if (typeof salvarEstadoRota === "function") salvarEstadoRota();
 }
 
+// CORREÇÃO: Função dedicada para parar o rastreamento (Evita leak de bateria)
+function pararRastreamentoGps() {
+    if (idRastreadorGps !== null) {
+        navigator.geolocation.clearWatch(idRastreadorGps);
+        idRastreadorGps = null;
+    }
+}
+
 async function desenharTrilhaMestreFixaCompleta() {
     if (rotaSpx.length <= 1) return;
     try {
-        // Envia as coordenadas para a nova Central do Motor Híbrido (main.js)
         let todasCoords = rotaSpx.map((_, i) => {
             let alvo = getAlvoData(i);
             return [alvo.lon, alvo.lat];
@@ -119,7 +133,7 @@ async function desenharTrilhaMestreFixaCompleta() {
         if (coordsCompletas.length > 0) {
             trilhaMestreGps.setLatLngs(coordsCompletas);
         }
-    } catch(e) { console.error("Erro ao desenhar trilha mestre", e); }
+    } catch(e) { console.warn("[Rota Ninja] Erro ao desenhar trilha mestre:", e); } // Log restaurado
 }
 
 async function atualizarProximaPernaRoxa() {
@@ -131,7 +145,6 @@ async function atualizarProximaPernaRoxa() {
         let alvoAtual = getAlvoData(idxDestino);
         let alvoProx = getAlvoData(idxDestino + 1);
         
-        // Usa o Motor Híbrido para blindar até a linha roxa de previsão
         let coordsCompletas = await requisitarRotaHibrida([
             [alvoAtual.lon, alvoAtual.lat], 
             [alvoProx.lon, alvoProx.lat]
@@ -140,14 +153,13 @@ async function atualizarProximaPernaRoxa() {
         if (coordsCompletas.length > 0) {
             proximaPernaGps.setLatLngs(coordsCompletas);
         }
-    } catch(e){}
+    } catch(e) { console.warn("[Rota Ninja] Erro na perna roxa:", e); }
 }
 
 function ativarRastreamentoGeolocalizacaoAtiva() {
     idRastreadorGps = navigator.geolocation.watchPosition(async pos => {
         minhaLat = pos.coords.latitude; minhaLon = pos.coords.longitude;
         
-        // Odômetro Real
         if (latAntGps !== null && lonAntGps !== null) {
             let distPercorrida = dist(latAntGps, lonAntGps, minhaLat, minhaLon);
             if (distPercorrida > 2 && distPercorrida < 150) {
@@ -161,7 +173,6 @@ function ativarRastreamentoGeolocalizacaoAtiva() {
         if (!markerUserGps) markerUserGps = L.circleMarker([minhaLat, minhaLon], { color: '#007AFF', fillOpacity: 1, radius: 8, zIndexOffset: 1000 }).addTo(mapGps);
         else markerUserGps.setLatLng([minhaLat, minhaLon]);
 
-        // Radares
         if (listaRadares.length > 0) {
             let radarProx = null, mDist = Infinity;
             listaRadares.forEach(r => { let dR = dist(minhaLat, minhaLon, r.lat, r.lon); if (dR <= 75 && dR < mDist) { mDist = dR; radarProx = r; } });
@@ -173,6 +184,7 @@ function ativarRastreamentoGeolocalizacaoAtiva() {
         const desviouDoTrilho = ultimaLatReq && dist(minhaLat, minhaLon, ultimaLatReq, ultimaLonReq) > 30;
         if (idxDestino < rotaSpx.length && !aguardandoConfirmacao) {
             if (passosNavegacao.length === 0 || desviouDoTrilho) {
+                // A promise é executada, mas a função de recalcular possui trava interna (Race Condition)
                 await recalcularRotaGpsTaticaProximoAlvo();
                 ultimaLatReq = minhaLat; ultimaLonReq = minhaLon;
             }
@@ -186,8 +198,14 @@ function ativarRastreamentoGeolocalizacaoAtiva() {
     }, () => {}, { enableHighAccuracy: true });
 }
 
+// CORREÇÃO CRÍTICA DA AUDITORIA: Blindado contra requisições cruzadas e atrasadas
 async function recalcularRotaGpsTaticaProximoAlvo() {
+    if (requisicaoNavegacaoEmAndamento) return; // Ignora se já estiver recalculando (Race Condition Lock)
     if (idxDestino >= rotaSpx.length) return;
+
+    requisicaoNavegacaoEmAndamento = true;
+    const meuToken = ++tokenNavegacaoAtual; // Marca o ID da requisição
+
     let alvo = getAlvoData(idxDestino);
     
     let txtEnderecos = "";
@@ -217,7 +235,6 @@ async function recalcularRotaGpsTaticaProximoAlvo() {
     markerDestGps = L.circleMarker([alvo.lat, alvo.lon], { radius: 11, color: '#fff', fillColor: '#007AFF', fillOpacity: 1, weight: 3 }).addTo(mapGps);
 
     try {
-        // FAILOVER ESPECÍFICO PARA OS PASSOS DA NAVEGAÇÃO
         let strCoords = `${minhaLon},${minhaLat};${alvo.lon},${alvo.lat}`;
         let params = `&steps=true&overview=full&geometries=geojson`;
         if (headingCarro !== null) params += `&bearings=${headingCarro},60;`;
@@ -225,22 +242,35 @@ async function recalcularRotaGpsTaticaProximoAlvo() {
         let res, data;
         let usouLocationIQ = false;
 
+        if (!usarLocationIQComChave && Date.now() > proximaTentativaLocationIQ) {
+            usarLocationIQComChave = true;
+        }
+
         if (usarLocationIQComChave) {
             try {
-                res = await fetch(`https://us1.locationiq.com/v1/directions/driving/${strCoords}?key=${LOCATIONIQ_KEY}${params}`);
+                res = await fetchComTimeout(`https://us1.locationiq.com/v1/directions/driving/${strCoords}?key=${LOCATIONIQ_KEY}${params}`, {}, 6000);
                 data = await res.json();
                 if (data.code === "Ok" && data.routes?.length > 0) {
                     usouLocationIQ = true;
                 } else if (data.error) {
-                    usarLocationIQComChave = false;
+                    throw { status: 403, message: "Cota ou Erro" };
                 }
-            } catch(e) { usarLocationIQComChave = false; }
+            } catch(e) { 
+                usarLocationIQComChave = false;
+                if (e.status === 429) proximaTentativaLocationIQ = Date.now() + 30000;
+                else if (e.status === 403 || e.status === 401) proximaTentativaLocationIQ = Date.now() + 300000;
+                else proximaTentativaLocationIQ = Date.now() + 15000;
+            }
         }
 
         if (!usouLocationIQ) {
-            res = await fetch(`https://router.project-osrm.org/route/v1/driving/${strCoords}?${params.substring(1)}`);
+            res = await fetchComTimeout(`https://router.project-osrm.org/route/v1/driving/${strCoords}?${params.substring(1)}`, {}, 8000);
             data = await res.json();
         }
+
+        // CORREÇÃO (O pulo do gato antifalha): Se enquanto eu carregava a internet, o usuário
+        // mudou de stop, eu cancelo o desenho antigo para não sobrescrever a tela com lixo.
+        if (meuToken !== tokenNavegacaoAtual) return;
 
         if (data && data.routes?.length > 0) {
             const r = data.routes[0];
@@ -248,7 +278,11 @@ async function recalcularRotaGpsTaticaProximoAlvo() {
             idxPasso = 0; distAnteriorCurva = Infinity;
             rotaRealGps.setLatLngs(r.geometry.coordinates.map(c => [c[1], c[0]])); 
         }
-    } catch(e){}
+    } catch(e) {
+        console.warn("[Rota Ninja] Falha ao recalcular perna tática:", e);
+    } finally {
+        requisicaoNavegacaoEmAndamento = false; // Libera a trava
+    }
 }
 
 function processarLogicaGuiamentoNavegacao() {
@@ -258,7 +292,6 @@ function processarLogicaGuiamentoNavegacao() {
     document.getElementById('rodape-rua').innerText = "PREVISÃO DE CHEGADA";
     document.getElementById('rodape-dist').innerText = Math.ceil((dFinal/5.5)/60) + " min";
 
-    // Entrada na zona de 30 metros
     if (dFinal < 30) {
         if (!aguardandoConfirmacao) {
             aguardandoConfirmacao = true; 
@@ -340,11 +373,11 @@ function atualizarCorPinoGPS(index, status) {
     if(isRotaManual) {
         let id = rotaSpx[index];
         if (id.startsWith("Vaga")) {
-            let v = vagasCriadas.find(x => x.marker.spxId === id);
-            if(v.gpsMarker) v.gpsMarker.setStyle({ fillColor: status === 'concluido' ? '#888' : '#ff0000', weight: 2 });
+            let v = indiceVagasPorId.get(id);
+            if(v && v.gpsMarker) v.gpsMarker.setStyle({ fillColor: status === 'concluido' ? '#888' : '#ff0000', weight: 2 });
         } else {
-            let p = planilhaStopsData.find(x => x.stop === id);
-            if(p.gpsMarker) p.gpsMarker.setStyle({ fillColor: status === 'concluido' ? '#888' : '#ff0000', weight: 2 });
+            let p = indicePlanilhaPorStop.get(id);
+            if(p && p.gpsMarker) p.gpsMarker.setStyle({ fillColor: status === 'concluido' ? '#888' : '#ff0000', weight: 2 });
         }
     } else {
         if(rotaSpx[index].gpsMarker) rotaSpx[index].gpsMarker.setStyle({ fillColor: status === 'concluido' ? '#888' : '#ff0000', weight: 2 });
@@ -384,6 +417,7 @@ function finalizarParadaAtual(status) {
     document.getElementById('painel-acoes').style.display = 'none';
 
     idxDestino++;
+    tokenNavegacaoAtual++; // Invalida qualquer requisição velha pendente
     passosNavegacao = [];
     
     if (idxDestino < rotaSpx.length) {
@@ -487,7 +521,9 @@ function forcarBaixaMenu(e, index, status) {
         document.getElementById('combo-checklist-container').style.display = 'none';
         document.getElementById('painel-acoes').style.display = 'none';
         
-        idxDestino++; passosNavegacao = [];
+        idxDestino++; 
+        tokenNavegacaoAtual++; // Invalida pendentes
+        passosNavegacao = [];
         
         if (idxDestino < rotaSpx.length) {
             recalcularRotaGpsTaticaProximoAlvo();
@@ -512,12 +548,13 @@ function pularParaStop(index) {
     document.getElementById('painel-topo').classList.remove('modo-confirmacao');
     document.getElementById('combo-checklist-container').style.display = 'none';
     
+    tokenNavegacaoAtual++; // Invalida qualquer perna antiga presa na rede
     recalcularRotaGpsTaticaProximoAlvo();
     atualizarProximaPernaRoxa(); 
 }
 
 function avaliarConclusaoExpedienteTotal() {
-    if (idRastreadorGps !== null) navigator.geolocation.clearWatch(idRastreadorGps);
+    pararRastreamentoGps(); // Usando a nova função segura
 
     releaseWakeLock();
     esconderTodasTelas();
