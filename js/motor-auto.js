@@ -60,12 +60,17 @@ function iniciarMapasAuditoria() {
     if (!mapPadrao) {
         mapPadrao = L.map('mapa-padrao', { zoomControl: false }).setView([-23.61, -46.57], 14);
         // Usa CartoDB Dark (100% gratuito e ilimitado para poupar a cota da LocationIQ)
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}').addTo(mapPadrao);
-        layerPadrao.addTo(mapPadrao);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 20,
+    maxNativeZoom: 15
+}).addTo(mapPadrao);        layerPadrao.addTo(mapPadrao);
     }
     if (!mapOtimizado) {
         mapOtimizado = L.map('mapa-otimizado', { zoomControl: false }).setView([-23.61, -46.57], 14);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}').addTo(mapOtimizado);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 20,
+    maxNativeZoom: 15
+}).addTo(mapOtimizado);
         layerOtimizado.addTo(mapOtimizado);
     }
 }
