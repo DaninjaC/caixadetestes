@@ -26,7 +26,7 @@ function iniciarMapeamentoManual() {
 function montarMapaDesenho() {
     if (!mapDesenho) {
         mapDesenho = L.map('mapa-desenho', { zoomControl: false }).setView([-23.615, -46.575], 14);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}').addTo(mapDesenho);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(mapDesenho);
         linhaDedoDesenho = L.polyline([], { color: '#FFCC00', weight: 4, opacity: 0.8, dashArray: '10, 10' }).addTo(mapDesenho);
         rotaRealDesenho = L.polyline([], { color: '#007AFF', weight: 5, opacity: 0.9 }).addTo(mapDesenho);
     }
